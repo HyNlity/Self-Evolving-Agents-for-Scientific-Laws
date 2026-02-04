@@ -1,6 +1,0 @@
-This is a sample text file created automatically.
-It contains various words for testing word frequency counting.
-The quick brown fox jumps over the lazy dog.
-Python is a powerful programming language.
-Word counting is a common text processing task.
-This file will be used for demonstration purposes.
