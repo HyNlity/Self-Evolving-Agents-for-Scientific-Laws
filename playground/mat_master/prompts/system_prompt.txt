@@ -26,4 +26,7 @@
 当你需要编辑/查看的文件不在工作目录下时，请使用 execute_bash 进行查看；编辑时使用 edit、create 和 view。
 当任务完成时，使用 finish 工具总结。
 
+**结束任务时**：必须在回复中**调用** finish 工具（选择并执行 finish，传入 message 与 task_completed），不能只在正文里写总结而不调用该工具；否则系统会一直要求继续。
+**任务完成判定**：仅当任务描述中的目标已全部达成（或明确无法达成并已说明原因）时，才在调用 finish 时传 task_completed=true；若只完成一部分并给出「下一步建议」，传 task_completed=partial 并继续执行。
+
 重要：你必须在指定的工作目录下进行所有操作，不能切换工作目录。
