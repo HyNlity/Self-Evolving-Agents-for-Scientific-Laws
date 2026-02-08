@@ -6,13 +6,16 @@
 mat_master 在此复写 _setup_mcp_tools，在初始化 MCP 前设置 tool_include_only（仅注册指定工具），
 不修改基类 core/playground.py。
 """
+from __future__ import annotations
 
 import asyncio
 import json
 import logging
 from pathlib import Path
+from typing import Any, Dict
 
 from evomaster.core import BasePlayground, register_playground
+from evomaster.agent.tools import MCPToolManager
 
 from .agent import MatMasterAgent
 
@@ -95,106 +98,32 @@ class MatMasterPlayground(BasePlayground):
         agent.set_agent_name(name)
         return agent
 
-    def _setup_mcp_tools(self):
-        """初始化 MCP 工具（mat_master 复写：在添加服务器前设置 tool_include_only）。
+    def _configure_mcp_manager(self, manager: MCPToolManager, mcp_config: Dict[str, Any]) -> None:
+        """Mat Master: 配置 calculation path adaptor 和 tool_include_only"""
 
-        与基类逻辑一致，仅在步骤 7 与 8 之间从 config.mcp.tool_include_only 写入 manager，
-        使 mat_sn 等仅注册指定工具（如 web-search、search-papers-enhanced）。
-        """
-        from evomaster.agent.tools import MCPToolManager
-
-        mcp_config = getattr(self.config, "mcp", None)
-        if not mcp_config or not isinstance(mcp_config, dict):
-            if not mcp_config:
-                self.logger.debug("MCP not configured, skipping")
-            else:
-                self.logger.error("Invalid MCP config format, expected dict")
-            return None
-        if not mcp_config.get("enabled", True):
-            self.logger.info("MCP is disabled in config")
-            return None
-
-        config_file = mcp_config.get("config_file", "mcp_config.json")
-        config_path = Path(config_file)
-        if not config_path.is_absolute():
-            config_path = self.config_manager.config_dir / config_path
-        if not config_path.exists():
-            self.logger.warning(f"MCP config file not found: {config_path}")
-            return None
-
-        self.logger.info(f"Loading MCP config from: {config_path}")
-        try:
-            with open(config_path, "r", encoding="utf-8") as f:
-                mcp_servers_config = json.load(f)
-        except Exception as e:
-            self.logger.error(f"Failed to load MCP config: {e}")
-            return None
-
-        PLACEHOLDER = "__EVOMASTER_WORKSPACES__"
-
-        def _deep_replace(obj, old: str, new: str):
-            if isinstance(obj, str):
-                return obj.replace(old, new)
-            if isinstance(obj, list):
-                return [_deep_replace(x, old, new) for x in obj]
-            if isinstance(obj, dict):
-                return {k: _deep_replace(v, old, new) for k, v in obj.items()}
-            return obj
-
-        try:
-            if self.run_dir is not None:
-                ws_root = str((Path(self.run_dir) / "workspaces").resolve())
-                mcp_servers_config = _deep_replace(mcp_servers_config, PLACEHOLDER, ws_root)
-                self.logger.info(f"[MCP] Replaced {PLACEHOLDER} -> {ws_root}")
-            else:
-                self.logger.debug(f"[MCP] run_dir is None, skip placeholder replace: {PLACEHOLDER}")
-        except Exception as e:
-            self.logger.warning(f"[MCP] Failed to replace placeholder paths: {e}")
-
-        servers = self._parse_mcp_servers(mcp_servers_config)
-        if not servers:
-            self.logger.warning("No valid MCP servers found in config")
-            return None
-
-        self.logger.info("Setting up MCP tools...")
-        manager = MCPToolManager()
+        # 1. 配置 calculation path adaptor
         if mcp_config.get("path_adaptor") == "calculation":
-            from evomaster.adaptors.calculation import get_calculation_path_adaptor
+            from playground.mat_master.adaptors.calculation import get_calculation_path_adaptor
 
             calc_servers = mcp_config.get("calculation_servers")
             if calc_servers:
                 manager.path_adaptor_servers = set(calc_servers)
             else:
-                manager.path_adaptor_servers = {s.get("name") for s in servers if s.get("name")}
-            manager.path_adaptor_factory = lambda: get_calculation_path_adaptor(mcp_config)
-            self.logger.info("Calculation path adaptor enabled for servers: %s", manager.path_adaptor_servers)
+                # 如果没有指定，要求配置中必须指定 calculation_servers
+                self.logger.warning("calculation_servers not specified in config, path adaptor may not work correctly")
+                manager.path_adaptor_servers = set()
 
-        # mat_master：仅在此处设置 tool_include_only，基类 core 不包含此逻辑
+            manager.path_adaptor_factory = lambda: get_calculation_path_adaptor(mcp_config)
+            self.logger.info("Calculation path adaptor enabled for servers: %s",
+                            manager.path_adaptor_servers)
+
+        # 2. 配置 tool_include_only（部分选择 MCP 工具）
         include_only = mcp_config.get("tool_include_only")
         if include_only and isinstance(include_only, dict):
             manager.tool_include_only = {
                 k: list(v) if isinstance(v, (list, tuple)) else []
                 for k, v in include_only.items()
             }
-            self.logger.info("MCP tool_include_only set for servers: %s", list(manager.tool_include_only.keys()))
+            self.logger.info("MCP tool_include_only set for servers: %s",
+                            list(manager.tool_include_only.keys()))
 
-        async def init_mcp_servers():
-            for server_config in servers:
-                try:
-                    await manager.add_server(**server_config)
-                except Exception as e:
-                    self.logger.error(f"Failed to add MCP server {server_config.get('name')}: {e}")
-
-        if self._mcp_loop is None or self._mcp_loop.is_closed():
-            self._mcp_loop = asyncio.new_event_loop()
-            self._mcp_thread = self._start_loop_in_thread()
-
-        manager.loop = self._mcp_loop
-        future = asyncio.run_coroutine_threadsafe(init_mcp_servers(), self._mcp_loop)
-        future.result()
-
-        manager.register_tools(self.tools)
-        tool_count = len(manager.get_tool_names())
-        server_count = len(manager.get_server_names())
-        self.logger.info(f"MCP tools setup complete: {tool_count} tools from {server_count} servers")
-        return manager

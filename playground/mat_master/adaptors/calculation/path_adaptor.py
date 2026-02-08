@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Set
 from urllib.parse import urlparse
 
-from evomaster.env import get_bohrium_storage_config, inject_bohrium_executor
+from evomaster.env.bohrium import get_bohrium_storage_config, inject_bohrium_executor
 
 from .oss_upload import upload_file_to_oss
 

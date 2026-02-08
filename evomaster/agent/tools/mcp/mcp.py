@@ -102,7 +102,8 @@ class MCPTool(BaseTool):
             args = json.loads(args_json)
             self.logger.debug(f"Executing MCP tool {self._tool_name} with args: {args}")
 
-            # 2. Path adaptor (calculation: executor=None, storage=http, path args → OSS URL)
+            # 2. Apply path adaptor (if configured via playground hook)
+            # Transforms arguments before sending to MCP tool (e.g., path conversion, credential injection)
             path_adaptor = getattr(self, "_path_adaptor", None)
             if path_adaptor is not None:
                 workspace_path = (

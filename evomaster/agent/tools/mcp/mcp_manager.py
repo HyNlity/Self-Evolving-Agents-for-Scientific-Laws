@@ -70,12 +70,15 @@ class MCPToolManager:
         # ready signal：{name: asyncio.Event}
         self._server_ready: dict[str, asyncio.Event] = {}
 
-        # Optional path adaptor for Mat-style MCP (local path -> OSS URL)
+        # Optional path adaptor: transform tool arguments before execution
+        # Use case: convert local paths to remote URLs, inject credentials, etc.
+        # Set via playground._configure_mcp_manager() hook
         self.path_adaptor_servers: set[str] = set()
         self.path_adaptor_factory: Any = None
 
-        # Optional per-server tool filter: only register these tools (original names). If set for a server, tools not in the list are excluded.
-        # Example: {"mat_sn": ["web-search", "search-papers-enhanced"]} -> only those two from mat_sn.
+        # Optional per-server tool filter: only register specified tools (by original names)
+        # If set for a server, tools not in the list are excluded
+        # Example: {"server1": ["tool-a", "tool-b"]} -> only load tool-a and tool-b from server1
         self.tool_include_only: dict[str, list[str]] = {}
 
     def _build_tools(self, server_name: str, connection: Any, tools_info: list[dict]) -> None:
