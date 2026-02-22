@@ -1,0 +1,30 @@
+# eurekatool catalog (1 line per entry)
+#
+# Load this file via:
+#   use_skill(skill_name="eurekatool", action="get_reference", reference_name="usage.txt")
+#
+# Code reuse is via Python import (no use_skill required):
+#   from skills.eurekatool import tool
+
+Functions (skills/eurekatool/tool.py):
+- load_experiment(path="experiment.json") -> dict : Load experiment.json as a dict.
+- list_rounds(experiment) -> list[int] : List available round numbers in experiment.json.
+- get_round_record(experiment, round_n) -> dict : Get one round record (pysr_config/results).
+- get_round_results(round_record) -> list[dict] : Get the results list for a round.
+- pick_best_equation(results) -> dict|None : Pick BestEq (lowest reported MSE; tie-break by complexity/rank).
+- format_alt_eqs(results, best_eq=None, max_n=5) -> str : Format 2-5 alternative equations into one line.
+- read_csv_rows(path="data.csv", columns=None) -> list[dict] : Read numeric CSV rows (as dicts of floats; non-numeric -> NaN).
+- build_row_env(row, variable_names) -> dict : Build a safe eval environment for one row (x0/x1... + column names).
+- safe_eval_expr(expr, env) -> float : Safely evaluate one expression on one row (stdlib-only, AST whitelist).
+- eval_equation_on_rows(expr, rows, variable_names) -> list[float] : Evaluate one expression on many rows.
+- compute_mse(y_true, y_pred) -> float : Mean squared error (skips NaN/inf pairs).
+- residual_summary(y_true, y_pred, top_outliers=5) -> dict : Residual stats + outlier indices.
+
+Scripts (run from Hamilton workspace, optional):
+- python3 skills/eurekatool/scripts/round_report.py --round N : Print an insight.md block (BestEq/MSE/AltEqs + optional residual summary).
+
+References (load one file at a time via use_skill get_reference):
+- io.md : Files/paths and import tips for use in the Hamilton workspace.
+- ranking.md : BestEq/MSE/AltEqs selection rules and caveats.
+- residuals.md : Residual summary fields and limitations (stdlib-only).
+- promotion.md : Minimal promotion workflow for adding reusable analysis.

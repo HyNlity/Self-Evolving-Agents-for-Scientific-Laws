@@ -1,0 +1,2 @@
+"""Hamilton symbolic regression playground."""
+

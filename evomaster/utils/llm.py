@@ -11,6 +11,7 @@ import time
 from abc import ABC, abstractmethod
 from typing import Any, Literal
 
+import os
 from pydantic import BaseModel, Field
 
 from evomaster.utils.types import AssistantMessage, Dialog, FunctionCall, ToolCall
@@ -312,16 +313,68 @@ class OpenAILLM(BaseLLM):
                 "OpenAI package not installed. Install with: pip install openai"
             )
 
-        # API key 必须在配置中提供
-        if not self.config.api_key:
-            raise ValueError("OpenAI API key must be provided in config")
+        # Support OpenAI-compatible backends that prefer env-based config.
+        # - OPENAI_API_KEY / OPENAI_BASE_URL: standard
+        # - GPT_KEY / GPT_BASE_URL: common internal convention
+        api_key = (
+            (self.config.api_key or "").strip()
+            or (os.environ.get("OPENAI_API_KEY") or "").strip()
+            or (os.environ.get("GPT_KEY") or "").strip()
+        )
+        base_url = (
+            (self.config.base_url or "").strip()
+            or (os.environ.get("OPENAI_BASE_URL") or "").strip()
+            or (os.environ.get("GPT_BASE_URL") or "").strip()
+            or None
+        )
+
+        if not api_key:
+            raise ValueError(
+                "OpenAI API key must be provided via config `llm.<name>.api_key` "
+                "or environment variable OPENAI_API_KEY / GPT_KEY."
+            )
 
         # 创建客户端
-        client_kwargs = {"api_key": self.config.api_key}
-        if self.config.base_url:
-            client_kwargs["base_url"] = self.config.base_url
+        client_kwargs = {"api_key": api_key}
+        if base_url:
+            client_kwargs["base_url"] = base_url
 
-        self.client = OpenAI(**client_kwargs)
+        # httpx can pick up proxy settings from environment variables (HTTP_PROXY/ALL_PROXY).
+        # If a SOCKS proxy is configured but socksio isn't installed, OpenAI() creation fails.
+        # Allow forcing trust_env off via env var, and auto-fallback if socksio is missing.
+        def _coerce_bool_env(name: str, default: bool) -> bool:
+            raw = os.environ.get(name)
+            if raw is None:
+                return default
+            return raw.strip().lower() in {"1", "true", "yes", "y", "on"}
+
+        trust_env = _coerce_bool_env("EVOMASTER_TRUST_ENV", True)
+
+        if not trust_env:
+            try:
+                import httpx  # type: ignore
+                self.client = OpenAI(**client_kwargs, http_client=httpx.Client(trust_env=False))
+                return
+            except Exception:
+                # Fall back to default client creation below.
+                pass
+
+        try:
+            self.client = OpenAI(**client_kwargs)
+        except ImportError as e:
+            # Typical failure: "Using SOCKS proxy, but the 'socksio' package is not installed."
+            if "socksio" in str(e).lower():
+                try:
+                    import httpx  # type: ignore
+                    self.logger.warning(
+                        "SOCKS proxy detected but socksio is missing; retrying OpenAI client "
+                        "creation with trust_env=False (ignoring proxy env vars)."
+                    )
+                    self.client = OpenAI(**client_kwargs, http_client=httpx.Client(trust_env=False))
+                    return
+                except Exception:
+                    pass
+            raise
 
     def _call(
         self,
@@ -330,23 +383,56 @@ class OpenAILLM(BaseLLM):
         **kwargs: Any,
     ) -> LLMResponse:
         """调用 OpenAI API"""
-        # 构建请求参数
-        request_params = {
-            "model": self.config.model,
-            "messages": messages,
-            "temperature": kwargs.get("temperature", self.config.temperature),
-            "timeout": kwargs.get("timeout", self.config.timeout)
-        }
+        model_name = kwargs.get("model", self.config.model) or ""
+        is_gpt5 = "gpt-5" in str(model_name).lower()
 
-        if self.config.max_tokens:
-            request_params["max_tokens"] = kwargs.get("max_tokens", self.config.max_tokens)
+        def _build_params(*, use_max_completion_tokens: bool) -> dict[str, Any]:
+            # Build request params. Some OpenAI-compatible gateways (Azure/LiteLLM) reject
+            # max_tokens for GPT-5 and require max_completion_tokens instead.
+            request_params: dict[str, Any] = {
+                "model": model_name,
+                "messages": messages,
+                "timeout": kwargs.get("timeout", self.config.timeout),
+            }
 
-        if tools:
-            request_params["tools"] = tools
-            request_params["tool_choice"] = kwargs.get("tool_choice", "auto")
+            if not is_gpt5:
+                request_params["temperature"] = kwargs.get("temperature", self.config.temperature)
 
-        # 调用 API
-        response = self.client.chat.completions.create(**request_params)
+            max_tokens = kwargs.get("max_tokens", self.config.max_tokens) if self.config.max_tokens else None
+            if max_tokens is not None:
+                # For GPT-5, many gateways disagree on token-limit parameter names.
+                # Default: do not send any token limit for GPT-5 to avoid 400s.
+                if is_gpt5:
+                    gpt5_send_limit = os.environ.get("EVOMASTER_GPT5_SEND_TOKEN_LIMIT", "0").strip().lower() in {
+                        "1", "true", "yes", "y", "on"
+                    }
+                    if gpt5_send_limit:
+                        request_params["max_completion_tokens"] = max_tokens
+                else:
+                    if use_max_completion_tokens:
+                        request_params["max_completion_tokens"] = max_tokens
+                    else:
+                        request_params["max_tokens"] = max_tokens
+
+            if tools:
+                request_params["tools"] = tools
+                request_params["tool_choice"] = kwargs.get("tool_choice", "auto")
+
+            return request_params
+
+        try:
+            response = self.client.chat.completions.create(**_build_params(use_max_completion_tokens=False))
+        except Exception as e:
+            # Auto-fallback: if gateway rejects max_tokens (common for GPT-5),
+            # retry once with max_completion_tokens.
+            msg = str(e)
+            if "max_tokens" in msg and "max_completion_tokens" in msg:
+                self.logger.warning(
+                    "Gateway rejected max_tokens; retrying with max_completion_tokens."
+                )
+                response = self.client.chat.completions.create(**_build_params(use_max_completion_tokens=True))
+            else:
+                raise
 
         # 解析响应
         choice = response.choices[0]

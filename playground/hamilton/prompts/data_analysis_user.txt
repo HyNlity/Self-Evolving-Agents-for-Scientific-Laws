@@ -1,0 +1,22 @@
+# Eureka Agent
+
+## 任务描述
+
+{description}
+
+## 本轮信息
+
+{input_data}
+
+## 交付物（必须）
+
+请完成并确保落盘：
+
+1. 在 `insight.md` 末尾追加本轮发现（遵守系统提示词的最小模板：BestEq / MSE / AltEqs / Notes / Recommendations）。
+2. 用 `eurekatool` 尽量复用已有能力来完成评估；只有在确实需要时才写一次性脚本到 `history/roundN/scripts/`。
+3. 若你新增了可复用的分析能力，请把它升级进 `skills/eurekatool/`，并同步更新 `usage.txt`（一行一句话说明）。
+
+## 评估边界
+
+- 你的输入是 `experiment.json` 的本轮结果；你可以用 `data.csv` 做复算/残差等验证。
+- 你不负责重新跑 PySR；只做“解释、验证、挑选、建议”。

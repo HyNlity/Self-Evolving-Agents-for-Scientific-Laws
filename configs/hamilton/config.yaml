@@ -1,0 +1,135 @@
+# Hamilton Playground 配置文件
+# 符号回归Agent - 过完备变量下的方程发现
+
+# ============================================
+# LLM 配置
+# ============================================
+llm:
+  openai:
+    provider: "openai"
+    model: "${GPT_CHAT_MODEL}"
+    api_key: "${OPENAI_API_KEY}"
+    base_url: "${GPT_BASE_URL}"
+    temperature: 0.7
+    max_tokens: 16384
+    timeout: 120
+    max_retries: 3
+    retry_delay: 1.0
+
+  anthropic:
+    provider: "anthropic"
+    model: "claude-haiku-4-5-20251001"
+    api_key: "${ANTHROPIC_API_KEY}"
+    base_url: "${ANTHROPIC_BASE_URL}"
+    temperature: 0.7
+    max_tokens: 16384
+    timeout: 120
+    max_retries: 3
+    retry_delay: 1.0
+
+  default: "openai"
+
+# ============================================
+# Agent 配置
+# ============================================
+agents:
+  # Hamilton Agent - 主分析Agent，变量分析、PySR调用、维护 analysis.md
+  hamilton:
+    llm: "openai"
+    max_turns: 100
+    enable_tools: true
+
+    context:
+      max_tokens: 128000
+      truncation_strategy: "latest_half"
+      preserve_system_messages: true
+      preserve_recent_turns: 10
+
+    system_prompt_file: "prompts/hamilton_system.txt"
+    user_prompt_file: "prompts/hamilton_user.txt"
+
+  # Eureka Agent - 结果分析，生成insight.md
+  # 可以写代码、残差分析、偏导数分析、物理含义思考
+  eureka:
+    llm: "openai"
+    max_turns: 80
+    enable_tools: true
+
+    context:
+      max_tokens: 128000
+      truncation_strategy: "latest_half"
+      preserve_system_messages: true
+      preserve_recent_turns: 10
+
+    system_prompt_file: "prompts/data_analysis_system.txt"
+    user_prompt_file: "prompts/data_analysis_user.txt"
+
+# ============================================
+# Skills 配置（用于 use_skill / Operator Skills）
+# ============================================
+skills:
+  enabled: true
+  skills_root: "evomaster/skills"
+
+# ============================================
+# MCP 配置
+# ============================================
+mcp:
+  config_file: "../mcp_config.json"
+  enabled: True
+
+# ============================================
+# Session 配置
+# ============================================
+session:
+  type: "local"
+
+  local:
+    working_dir: "./playground/hamilton/workspace"
+    timeout: 300
+    gpu_devices: null
+    cpu_devices: null
+    # 将可复用工具映射进每次 run 的 workspace，方便 Eureka 在不切换目录的前提下维护工具。
+    symlinks:
+      "evomaster/skills/eurekatool": "skills/eurekatool"
+
+# ============================================
+# 实验记录配置
+# ============================================
+experiment:
+  # 实验记录保存路径
+  record_dir: "./playground/hamilton/records"
+
+  # 最大迭代轮数
+  max_rounds: 5
+
+  # PySR 配置
+  pysr:
+    # 默认参数
+    niterations: 100
+    max_evals: 100000
+    timeout_in_seconds: 300
+    # operators: ["+", "-", "*", "/", "sin", "cos", "exp", "log", "^2", "^3"]
+
+# ============================================
+# 系统提示词配置
+# ============================================
+system_prompt_file: "../../../playground/hamilton/prompts/analysis_system.txt"
+
+# ============================================
+# 日志配置
+# ============================================
+logging:
+  level: "INFO"
+  format: "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+  file: null
+  console: true
+  log_path: "./logs/hamilton.log"
+
+# ============================================
+# 其他配置
+# ============================================
+project_root: "."
+workspace: "./workspace"
+results_dir: "./results"
+debug: false

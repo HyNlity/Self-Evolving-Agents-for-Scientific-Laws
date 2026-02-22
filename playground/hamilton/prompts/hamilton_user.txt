@@ -1,0 +1,27 @@
+# Hamilton Agent
+
+## 任务描述
+
+{description}
+
+## 本轮信息
+
+{input_data}
+
+## 交付物（必须）
+
+请在当前工作目录内完成以下交付：
+
+1. 在 `analysis.md` 末尾追加本轮记录（自然语言即可，但要“可复现、可迭代”）。
+2. 本轮记录必须包含这些要点：
+   - 本轮目标：你希望通过这次 PySR 实验验证/排除什么假设
+   - 本轮 delta：相对上一轮，你改变了哪些 PySR 搜索空间要素（变量/骨架/算子/约束/预算）
+   - 本轮实验定义：你将如何设置 `pysr_symbolic_regression`（y、variable_names、combine、operators、constraints、niterations/max_evals/timeout/select_k）
+   - 为什么这样设计：它如何更可能产出“可靠 + 可解释”的公式
+   - 如果失败：下一轮你准备往哪个方向调整（给出 1-2 个候选方向即可）
+3. 如需编写分析/验证代码，请把脚本保存到 `history/roundN/scripts/`（N 以本轮为准），并在 `analysis.md` 解释脚本结论。
+
+## 执行要求
+
+- 读取 `insight.md` 了解上一轮的发现。
+- 执行一次 `pysr_symbolic_regression`，确保 `experiment.json` 里写入了本轮记录。
