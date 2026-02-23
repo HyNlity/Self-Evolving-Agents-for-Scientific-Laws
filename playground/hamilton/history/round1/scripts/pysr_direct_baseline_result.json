@@ -1,0 +1,89 @@
+{
+  "settings": {
+    "niterations": 200,
+    "max_evals": 200000,
+    "timeout_in_seconds": 120,
+    "binary_operators": [
+      "+",
+      "-",
+      "*",
+      "/"
+    ],
+    "unary_operators": [
+      "sin",
+      "cos",
+      "exp",
+      "log"
+    ],
+    "select_k": 10,
+    "seed": 0,
+    "train_csv": "/opt/EvoMaster/playground/hamilton/workspace/data.csv",
+    "ood_csv": "/opt/EvoMaster/playground/hamilton/workspace/data_ood.csv"
+  },
+  "top_equations": [
+    {
+      "rank": 1,
+      "equation": "((((((((x7 + sin(((x1 - x4) + -0.004963229) + x4)) - x7) + x7) + -0.0063822307) - x4) + x1) - x4) + (x1 + -0.40935954)) + (x1 + 0.7573466)",
+      "loss": 0.22413787,
+      "complexity": 30
+    },
+    {
+      "rank": 2,
+      "equation": "(((x7 + -0.11021263) + (((x1 + x1) - x4) / 0.37453905)) * 0.674784) - -0.7511425",
+      "loss": 0.22591195,
+      "complexity": 15
+    },
+    {
+      "rank": 3,
+      "equation": "(((x1 + ((x1 - x4) + 0.8710968)) / 0.5554574) + x7) + -1.2165484",
+      "loss": 0.32822698,
+      "complexity": 13
+    },
+    {
+      "rank": 4,
+      "equation": "(((x1 / 0.5782575) + 0.6642005) - x4) * 2.0108387",
+      "loss": 0.5808763,
+      "complexity": 9
+    },
+    {
+      "rank": 5,
+      "equation": "(x4 * -1.2951981) + (x1 * 3.476707)",
+      "loss": 3.1255653,
+      "complexity": 7
+    },
+    {
+      "rank": 6,
+      "equation": "(x4 - x1) * -2.654074",
+      "loss": 3.4529655,
+      "complexity": 5
+    },
+    {
+      "rank": 7,
+      "equation": "exp(x1) - x4",
+      "loss": 7.166875,
+      "complexity": 4
+    },
+    {
+      "rank": 8,
+      "equation": "x1 * 3.387778",
+      "loss": 7.8682513,
+      "complexity": 3
+    },
+    {
+      "rank": 9,
+      "equation": "exp(x1)",
+      "loss": 11.012993,
+      "complexity": 2
+    },
+    {
+      "rank": 10,
+      "equation": "x1",
+      "loss": 13.404965,
+      "complexity": 1
+    }
+  ],
+  "best_equation": "(x7 + (x1 + x1 - x4)/0.37453905 - 0.11021263)*0.674784 - 1*(-0.7511425)",
+  "train_mse": 0.225911988030204,
+  "ood_mse": 0.8377782301585228,
+  "ood_gap": 0.6118662421283189
+}

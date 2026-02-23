@@ -20,7 +20,7 @@
   - 但 `_setup_session()` 直接调用 `self.config.session.get(...)`，这要求 `self.config.session` 必须是 dict（否则会 AttributeError）。
   - 这类“动态鸭子类型”会让下游 playground（如 Hamilton）在读取 config 时出现隐蔽 bug，需要进一步追踪 `ConfigManager.load()` 的返回类型来统一约束。
 - 进一步确认：`ConfigManager.load()` 返回的是 Pydantic 模型 `EvoMasterConfig`，其中 `session/llm/agent` 明确是 `dict` 字段，而 `logging/env/skill` 等是子模型字段；同时 `BaseConfig.Config.extra="allow"` 允许 playground 自定义字段（如 `agents`、`experiment`）直接以“原始 dict”挂到 config 上。
-- `BasePlayground._create_agent()` 对提示词路径的解析使用了 `str(self.config_dir).replace("configs", "playground")` 来推断 `playground/<agent>/...` 根目录，这个做法较脆弱（依赖目录命名、字符串替换、可能误替换路径中其它同名片段），建议改为基于 `Path.parts` 的显式拼接。
+- `BasePlayground._create_agent()` 对提示词路径的解析使用了 `str(self.config_dir).replace("configs", "playground")` 来推断 `playground/<agent>/...` 根目录，这个做法较脆弱（依赖c目录命名、字符串替换、可能误替换路径中其它同名片段），建议改为基于 `Path.parts` 的显式拼接。
 - 结合 `evomaster/agent/agent.py:load_prompt_from_file()` 可见：Agent 解析相对 prompt 路径默认是“相对于 config_dir”；而 prompts 实际放在 `playground/<name>/prompts/`，因此目前只能在 `BasePlayground._create_agent()` 里做路径重写才能工作。这暴露了一个框架层面的路径约定不一致：
   - 方案A：约定 prompts 跟随 configs（`configs/<agent>/prompts/...`），避免重写；
   - 方案B：引入 `prompt_root`/`playground_dir` 配置项或 `ConfigManager` 提供 `resolve_playground_path()`，由统一方法解析；

@@ -47,6 +47,8 @@ agents:
 
     system_prompt_file: "prompts/hamilton_system.txt"
     user_prompt_file: "prompts/hamilton_user.txt"
+    prompt_format_kwargs:
+      usage: "workspace/tools/ToolUsage.md"
 
   # Eureka Agent - 结果分析，生成insight.md
   # 可以写代码、残差分析、偏导数分析、物理含义思考
@@ -61,8 +63,10 @@ agents:
       preserve_system_messages: true
       preserve_recent_turns: 10
 
-    system_prompt_file: "prompts/data_analysis_system.txt"
-    user_prompt_file: "prompts/data_analysis_user.txt"
+    system_prompt_file: "prompts/eureka_system.txt"
+    user_prompt_file: "prompts/eureka_user.txt"
+    prompt_format_kwargs:
+      usage: "workspace/tools/ToolUsage.md"
 
 # ============================================
 # Skills 配置（用于 use_skill / Operator Skills）
@@ -114,7 +118,7 @@ experiment:
 # ============================================
 # 系统提示词配置
 # ============================================
-system_prompt_file: "../../../playground/hamilton/prompts/analysis_system.txt"
+system_prompt_file: "../../../playground/hamilton/prompts/hamilton_system.txt"
 
 # ============================================
 # 日志配置

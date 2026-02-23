@@ -1,0 +1,30 @@
+## 任务
+{description}
+
+## 输入上下文
+- 本轮编号：`round`（来自任务输入）
+- 任务输入对象：`input_data`（包含 `round`、`hamilton_result`）
+- 当前目录：workspace 根目录
+- 参考文件：
+  - `analysis.md`
+  - `experiment.json`
+  - `history/roundN/scripts/`
+- 工具索引：{usage}
+- 你可以读 `data.csv`/`data_ood.csv` 作验证，但核心结论来自 `experiment.json`。
+
+## 目标
+1. 读取本轮及历史 `analysis.md`，并结合 `experiment.json` 的 PySR 结果（包括 niterations/max_evals/timeout/select_k）。
+2. 完成残差、OOD、变量/函数项分析（可写 `history/roundN/scripts/` 脚本）。
+3. 将本轮发现追加到 `insight.md`。
+
+## 本轮写入 `insight.md`（追加）
+- 本轮最佳公式（含 train/ood 指标）
+- AltEqs（前 3~5 条）与解释
+- 变量相关性判断与可解释性说明
+- 下轮建议（1-2 条）
+- 若有可复用代码，给出文件路径（`history/roundN/scripts/xxx.py`）
+
+## 复用规则
+如果你写了有复用价值的函数分析：
+1) 先放到 `workspace/tools/tool.py`
+2) 再更新 `workspace/tools/ToolUsage.md` 的索引表

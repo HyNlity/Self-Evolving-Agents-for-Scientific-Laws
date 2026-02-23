@@ -1,27 +1,33 @@
-# Hamilton Agent
-
-## 任务描述
-
+## 任务
 {description}
 
-## 本轮信息
+## 运行环境（固定）
+- 当前目录为 workspace 根目录（系统提示词里会给绝对路径）。
+- 训练输入：`data.csv`（必需）
+- 外推输入：`data_ood.csv`（可选）
+- 本轮脚本：`history/roundN/scripts/`  
+- 本轮记录：`analysis.md`（追加）
+- 实验记录：`experiment.json`（系统追加）
+- 历史结论：`insight.md`（Eureka 每轮追加）
+- 可复用工具索引：{usage}
+- 输入数据对象：`input_data`（目前包含当前轮次号）
 
-{input_data}
+## 你要做的事
+1. 先读 `analysis.md` + `insight.md`，确认上一轮结论与 `delta`。
+2. 做变量筛选/公式先验分析（可写脚本，放在 `history/roundN/scripts/`）。
+3. 调用 `pysr_symbolic_regression` 一轮搜索。
+4. 只追加，不覆盖：把本轮结论写回 `analysis.md`。
 
-## 交付物（必须）
+## 本轮必须明确写在 `analysis.md`
+- 本轮目标：这轮要验证/排除的假设
+- 本轮 `delta`：相对上一轮改了什么（变量/骨架/算子/约束/预算）
+- 本轮实验定义：
+  - y
+  - expression_spec.variable_names
+  - expression_spec.combine（骨架）
+  - operators（binary/unary）
+  - constraints / nested_constraints
+  - niterations、max_evals、timeout_in_seconds、select_k
 
-请在当前工作目录内完成以下交付：
-
-1. 在 `analysis.md` 末尾追加本轮记录（自然语言即可，但要“可复现、可迭代”）。
-2. 本轮记录必须包含这些要点：
-   - 本轮目标：你希望通过这次 PySR 实验验证/排除什么假设
-   - 本轮 delta：相对上一轮，你改变了哪些 PySR 搜索空间要素（变量/骨架/算子/约束/预算）
-   - 本轮实验定义：你将如何设置 `pysr_symbolic_regression`（y、variable_names、combine、operators、constraints、niterations/max_evals/timeout/select_k）
-   - 为什么这样设计：它如何更可能产出“可靠 + 可解释”的公式
-   - 如果失败：下一轮你准备往哪个方向调整（给出 1-2 个候选方向即可）
-3. 如需编写分析/验证代码，请把脚本保存到 `history/roundN/scripts/`（N 以本轮为准），并在 `analysis.md` 解释脚本结论。
-
-## 执行要求
-
-- 读取 `insight.md` 了解上一轮的发现。
-- 执行一次 `pysr_symbolic_regression`，确保 `experiment.json` 里写入了本轮记录。
+## PySR 输入提示
+PySR 工具脚本固定读取 `data.csv`，如需使用 `data_ood.csv`，请在你自己的脚本中显式读取它并做 OOD 评估。

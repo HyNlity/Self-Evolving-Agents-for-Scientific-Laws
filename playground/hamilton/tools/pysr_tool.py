@@ -5,12 +5,13 @@ PySR Tool - 符号回归工具
 支持自动记录参数和结果到 experiment.json
 """
 
+from __future__ import annotations
+
 import json
 import os
 import shlex
-from datetime import datetime
 from typing import Any, ClassVar
-from pydantic import Field, BaseModel
+from pydantic import BaseModel, Field
 
 from evomaster.agent.tools.base import BaseTool, BaseToolParams
 
@@ -49,8 +50,8 @@ class PySRToolParams(BaseToolParams):
         description="目标变量名（数据列名）"
     )
 
-    expression_spec: dict = Field(
-        description="""表达式模板规格 dict，包含:
+    expression_spec: ExpressionSpec = Field(
+        description="""表达式模板规格，包含:
 - expressions: 占位符列表，如 ["f", "g"]
 - variable_names: 特征变量名列表
 - combine: 方程骨架，如 "f(x1) + g(x2)"
@@ -84,31 +85,6 @@ class PySRToolParams(BaseToolParams):
     unary_operators: list[str] = Field(
         default=["sin", "cos", "exp", "log"],
         description="一元运算符列表，如 ['sin', 'cos', 'exp', 'log']"
-    )
-
-    # ===== 复杂度约束 =====
-
-    constraints: dict = Field(
-        default={},
-        description="""算子复杂度约束 dict，如:
-- {'*': (3, 3)} 表示乘法左右子树最大深度为3
-- {'+': (5, 5)} 表示加法左右子树最大深度为5
-"""
-    )
-
-    nested_constraints: dict = Field(
-        default={},
-        description="""嵌套约束 dict，如:
-- {'sin': {'cos': 0}} 禁止 sin(cos(x))
-- {'exp': {'exp': 0}} 禁止 exp(exp(x))
-"""
-    )
-
-    # ===== 输出控制 =====
-
-    select_k: int = Field(
-        default=3,
-        description="返回前k个最优表达式"
     )
 
 
@@ -200,22 +176,32 @@ class PySRTool(BaseTool):
                 experiment_data = {"rounds": {}}
 
         # 构建本轮记录
+        normalized_results = []
+        for item in results:
+            if not isinstance(item, dict):
+                continue
+            equation = item.get("equation")
+            if not isinstance(equation, str):
+                continue
+            normalized_results.append({
+                "equation": equation,
+                "mse": item.get("mse", item.get("loss")),
+                "complexity": item.get("complexity"),
+            })
+
         round_record = {
             "round": round_num,
-            "timestamp": datetime.now().isoformat(),
             "pysr_config": {
                 "y": params.y,
-                "expression_spec": params.expression_spec,
+                "variable_names": params.expression_spec.variable_names,
+                "expression_spec": params.expression_spec.model_dump(),
                 "niterations": params.niterations,
                 "max_evals": params.max_evals,
                 "timeout_in_seconds": params.timeout_in_seconds,
                 "binary_operators": params.binary_operators,
                 "unary_operators": params.unary_operators,
-                "constraints": params.constraints,
-                "nested_constraints": params.nested_constraints,
-                "select_k": params.select_k,
             },
-            "results": results,
+            "results": normalized_results,
             "exit_code": exit_code,
         }
 
@@ -305,7 +291,7 @@ class PySRTool(BaseTool):
 
     def _build_pysr_code(self, params: PySRToolParams) -> str:
         """构建PySR调用代码"""
-        spec = params.expression_spec
+        spec = params.expression_spec.model_dump()
 
         # 将列表转为Python代码中的列表表示
         var_names = spec.get("variable_names", [])
@@ -315,10 +301,9 @@ class PySRTool(BaseTool):
         # 序列化参数
         binary_ops_json = json.dumps(params.binary_operators)
         unary_ops_json = json.dumps(params.unary_operators)
-        constraints_json = json.dumps(params.constraints)
-        nested_constraints_json = json.dumps(params.nested_constraints)
 
-        code = f"""
+        # 使用模板字符串并替换变量
+        code = """
 import pandas as pd
 import numpy as np
 import json
@@ -334,34 +319,32 @@ except ImportError:
 df = pd.read_csv('data.csv')
 
 # 提取特征和目标
-var_names = {json.dumps(var_names)}
+var_names = VARIABLE_NAMES_PLACEHOLDER
 X = df[var_names].values
-y_col = {json.dumps(params.y)}
+y_col = Y_COL_PLACEHOLDER
 y = df[y_col].values
 
 # 表达式模板配置
-expressions = {json.dumps(expressions)}
-combine = {json.dumps(combine)}
+expressions = EXPRESSIONS_PLACEHOLDER
+combine = COMBINE_PLACEHOLDER
 
 # PySR调用
-print("Running PySR with niterations={params.niterations}, max_evals={params.max_evals}")
-print("Binary operators: {binary_ops_json}")
-print("Unary operators: {unary_ops_json}")
-print("Expression template: {combine}")
+print("Running PySR with niterations=NITERATIONS_PLACEHOLDER, max_evals=MAX_EVALS_PLACEHOLDER")
+print("Binary operators: " + BINARY_OPS_PLACEHOLDER)
+print("Unary operators: " + UNARY_OPS_PLACEHOLDER)
+print("Expression template: " + COMBINE_PLACEHOLDER)
 print("-" * 50)
 
 equations = pysr(
     X,
     y,
-    niterations={params.niterations},
-    max_evals={params.max_evals},
-    binary_operators={binary_ops_json},
-    unary_operators={unary_ops_json},
-    constraints={constraints_json},
-    nested_constraints={nested_constraints_json},
+    niterations=NITERATIONS_PLACEHOLDER,
+    max_evals=MAX_EVALS_PLACEHOLDER,
+    binary_operators=BINARY_OPS_PLACEHOLDER,
+    unary_operators=UNARY_OPS_PLACEHOLDER,
     expression_selection=expressions,
     combine=combine,
-    timeout={params.timeout_in_seconds},
+    timeout=TIMEOUT_PLACEHOLDER,
     verbose=True,
     n_jobs=1,
     populations=20,
@@ -369,11 +352,11 @@ equations = pysr(
 
 # 输出最优表达式
 print("=" * 50)
-print("PySR Results (Top {params.select_k}):")
+print("PySR Results (Top 1):")
 print("=" * 50)
 results = []
 try:
-    selected = equations.select_k({params.select_k})
+    selected = equations.select_k(1)
 except Exception:
     selected = []
 
@@ -397,15 +380,26 @@ for i, eq in enumerate(selected):
     print("  Complexity: " + str(complexity_v))
     print("-" * 30)
 
-    results.append({{
+    results.append({
         "rank": i + 1,
         "equation": expr_s,
         "mse": loss_v,
         "complexity": complexity_v,
-    }})
+    })
 
 print("===EVO_PYSR_RESULTS_JSON_BEGIN===")
 print(json.dumps(results, ensure_ascii=False))
 print("===EVO_PYSR_RESULTS_JSON_END===")
 """
+        # 替换占位符（注意：长的字符串要先替换，避免子字符串冲突）
+        code = code.replace("VARIABLE_NAMES_PLACEHOLDER", json.dumps(var_names))
+        code = code.replace("Y_COL_PLACEHOLDER", json.dumps(params.y))
+        code = code.replace("EXPRESSIONS_PLACEHOLDER", json.dumps(expressions))
+        code = code.replace("COMBINE_PLACEHOLDER", json.dumps(combine))
+        code = code.replace("NITERATIONS_PLACEHOLDER", str(params.niterations))
+        code = code.replace("MAX_EVALS_PLACEHOLDER", str(params.max_evals))
+        code = code.replace("BINARY_OPS_PLACEHOLDER", binary_ops_json)
+        code = code.replace("UNARY_OPS_PLACEHOLDER", unary_ops_json)
+        code = code.replace("TIMEOUT_PLACEHOLDER", str(params.timeout_in_seconds))
+
         return code

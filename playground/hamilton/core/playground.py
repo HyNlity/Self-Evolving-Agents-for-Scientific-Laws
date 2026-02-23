@@ -111,9 +111,9 @@ class HamiltonPlayground(BasePlayground):
         """设置 run 目录并为 Hamilton 初始化 workspace 模板。
 
         Hamilton 的 prompts 依赖 workspace 内存在一些“模板文件/目录”（如 tools/），同时数据集通常以
-        `data.csv` 的形式放在 workspace 根目录。`run.py` 会为每次任务创建全新 workspace，因此这里需要：
+        `data.csv` 的形式放在 workspace 根目录（可选还有 `data_ood.csv`）。`run.py` 会为每次任务创建全新 workspace，因此这里需要：
         - 将 `playground/hamilton/workspace/` 中的模板内容拷贝到新 workspace（不覆盖已存在文件）
-        - 若模板 workspace 中存在 `data.csv`，则一并拷贝（便于用户在模板目录放置固定数据集）
+        - 若模板 workspace 中存在 `data.csv` / `data_ood.csv`，则一并拷贝（便于用户在模板目录放置固定数据集）
         """
         super().set_run_dir(run_dir, task_id=task_id)
 
@@ -140,12 +140,18 @@ class HamiltonPlayground(BasePlayground):
                 shutil.copytree(src_tools, dst_tools)
                 self.logger.info(f"Seeded tools/ into workspace: {dst_tools}")
 
-            # 2) data.csv（可选：允许用户把固定数据集放在模板目录以便自动带入每次 run）
+            # 2) 数据文件（可选：允许用户把固定数据集放在模板目录以便自动带入每次 run）
             src_data = template_dir / "data.csv"
             dst_data = workspace_path / "data.csv"
             if src_data.exists() and src_data.is_file() and not dst_data.exists():
                 shutil.copy2(src_data, dst_data)
                 self.logger.info(f"Seeded data.csv into workspace: {dst_data}")
+
+            src_data_ood = template_dir / "data_ood.csv"
+            dst_data_ood = workspace_path / "data_ood.csv"
+            if src_data_ood.exists() and src_data_ood.is_file() and not dst_data_ood.exists():
+                shutil.copy2(src_data_ood, dst_data_ood)
+                self.logger.info(f"Seeded data_ood.csv into workspace: {dst_data_ood}")
 
         except Exception as e:
             # seed 失败不应阻断运行（但会导致后续缺文件时显式报错）
@@ -332,6 +338,15 @@ class HamiltonPlayground(BasePlayground):
                 f"Missing required input dataset: {data_file}\n"
                 "Hamilton expects a CSV named 'data.csv' in the workspace root.\n"
                 "Tip: put your data.csv in 'playground/hamilton/workspace/data.csv' so it will be auto-seeded into each new run workspace."
+            )
+
+        # data_ood.csv - 可选输入
+        data_ood_file = workspace / "data_ood.csv"
+        if not data_ood_file.exists():
+            self.logger.warning(
+                "Optional OOD dataset not found: %s. "
+                "PySR default tool won't break, but OOD validation scripts should guard for its absence.",
+                data_ood_file
             )
 
         # analysis.md - 分析历史（初始写入任务描述）
