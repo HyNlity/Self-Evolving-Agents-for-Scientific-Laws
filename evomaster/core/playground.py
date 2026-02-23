@@ -316,6 +316,7 @@ class BasePlayground:
         agent_config: dict,
         enable_tools: bool = True,
         llm_config_dict: dict | None = None,
+        tools=None,
         skill_registry: SkillRegistry | None = None,
     ):
         """创建 Agent 实例
@@ -327,6 +328,7 @@ class BasePlayground:
             agent_config: Agent 配置字典
             enable_tools: 是否启用工具调用
             llm_config_dict: LLM 配置字典（如果为 None，则从配置管理器获取）
+            tools: 可选 ToolRegistry。若提供则覆盖 self.tools，用于多 agent/不同工具集场景。
 
         Returns:
             Agent 实例
@@ -376,10 +378,11 @@ class BasePlayground:
         # 创建 Agent
         # 注意：无论 enable_tools 是什么值，都传递 tools 给 Agent
         # enable_tools 只控制工具信息是否出现在提示词中，不影响工具注册
+        tools_to_use = tools if tools is not None else self.tools
         agent = Agent(
             llm=llm,
             session=self.session,
-            tools=self.tools,  # 始终传递 tools，工具始终注册
+            tools=tools_to_use,  # 始终传递 tools，工具始终注册
             system_prompt_file=system_prompt_file,
             user_prompt_file=user_prompt_file,
             prompt_format_kwargs=prompt_format_kwargs,

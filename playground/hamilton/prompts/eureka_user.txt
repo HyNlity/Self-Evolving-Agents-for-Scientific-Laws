@@ -14,14 +14,14 @@
 - analysis.md
 
 ## 目前已有的分析工具
-- 工具索引文件：{usage}
+- 工具索引文件：tools/ToolUsage.md
 
 说明：
-- 先看 `{usage}` 再决定是否直接复用已有代码。
-- 本轮分析放在 `history/round{N}/scripts/`，复用性高再回填到 `workspace/tools/tool.py`。
+- 先看 `tools/ToolUsage.md` 再决定是否直接复用已有代码。
+- 本轮分析放在 `history/round{input_data[round]}/scripts/`，复用性高再回填到 `tools/tool.py`。
 
 ## 本轮职责（简化）
-- 读取 `experiment.json` 本轮结果（`rounds[N]`）和当前 `analysis.md` 历史。
+- 读取 `experiment.json` 本轮结果（`rounds[{input_data[round]}]`）和当前 `analysis.md` 历史。
 - 在 `data.csv` 上做一次基础误差评估，给出残差分布和主要异常点。
 - 写 `insight.md`：本轮结论 + 可能有价值的变量/函数项线索 + 下一轮建议。
 - 不要求固定模板化步骤，重点是有结论、有证据、可复现。
@@ -34,14 +34,14 @@
 1) 追加 insight
 ```bash
 cat >> insight.md <<'EOF'
-## Round 1
+## Round {input_data[round]}
 - ...
 EOF
 ```
 2) 本轮脚本
 ```bash
-cat > history/round1/scripts/round1_residual_report.py <<'PY'
+cat > history/round{input_data[round]}/scripts/round{input_data[round]}_residual_report.py <<'PY'
 print("report")
 PY
-python3 history/round1/scripts/round1_residual_report.py
+python3 history/round{input_data[round]}/scripts/round{input_data[round]}_residual_report.py
 ```

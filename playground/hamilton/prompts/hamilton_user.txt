@@ -1,6 +1,9 @@
 ## 任务描述
 {description}
 
+## 轮次上下文
+- 本轮编号：{input_data[round]}
+
 ## 文件位置（工作空间根目录）
 - data.csv
 - data_ood.csv（可选）
@@ -8,7 +11,7 @@
 ## 直接可执行的动作
 - 数据文件直接用 `data.csv`、`data_ood.csv` 读取（不要再写 `input/` 前缀）。
 - 本轮分析记录到 `analysis.md`（追加，不要覆盖）。
-- 本轮代码放到 `history/round{N}/scripts/`。
+- 本轮代码放到 `history/round{input_data[round]}/scripts/`。
 - 先跑一次本轮分析后再调用 `pysr_symbolic_regression`。
 
 ## 写作规则
@@ -16,28 +19,28 @@
 - 只要求“可复现”即可，不必强制列固定模型结构。
 
 ## 复用规则（建议）
-- 本轮一次性脚本：`history/round{N}/scripts/`
-- 反复出现才迁移到 `workspace/tools/tool.py`，并更新 `workspace/tools/ToolUsage.md`
+- 本轮一次性脚本：`history/round{input_data[round]}/scripts/`
+- 反复出现才迁移到 `tools/tool.py`，并更新 `tools/ToolUsage.md`
 
 ## 常用终端命令（可直接改）
 1) 追加分析到 `analysis.md`
 ```bash
 cat >> analysis.md <<'EOF'
-## Round 1
+## Round {input_data[round]}
 - ...
 EOF
 ```
 2) 写本轮脚本
 ```bash
-cat > history/round1/scripts/round1_analysis.py <<'PY'
+cat > history/round{input_data[round]}/scripts/round{input_data[round]}_analysis.py <<'PY'
 import pandas as pd
 print("todo")
 PY
-python3 history/round1/scripts/round1_analysis.py
+python3 history/round{input_data[round]}/scripts/round{input_data[round]}_analysis.py
 ```
-3) 需要复用时，把函数迁移到 `workspace/tools/tool.py`
+3) 需要复用时，把函数迁移到 `tools/tool.py`
 ```bash
-cat >> workspace/tools/tool.py <<'PY'
+cat >> tools/tool.py <<'PY'
 def my_func(...):
     ...
 PY
