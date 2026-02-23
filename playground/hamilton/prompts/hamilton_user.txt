@@ -1,19 +1,44 @@
-##任务描述
+## 任务描述
 {description}
 
-##数据
-训练数据：{input/data.csv}
-外推数据：{input/data_ood.csv}
+## 文件位置（工作空间根目录）
+- data.csv
+- data_ood.csv（可选）
 
-##实验记录文件
-已有的数据分析： analysis.md
-历史实验记录：experiment.json
-历史结果分析：insight.md
+## 直接可执行的动作
+- 数据文件直接用 `data.csv`、`data_ood.csv` 读取（不要再写 `input/` 前缀）。
+- 本轮分析记录到 `analysis.md`（追加，不要覆盖）。
+- 本轮代码放到 `history/round{N}/scripts/`。
+- 先跑一次本轮分析后再调用 `pysr_symbolic_regression`。
 
-## 职责
-通过python工具，对数据进行分析：可能的表达式结构/可能的函数项
-你还需要实现一个创新的方法（数学分析/黑盒模型/相关性分析或者任何），发现x1~x10中真正的与y相关的变量，减少PYSR的复杂性
-分析结束后，请你将本轮对数据的洞察写在analysis.md
+## 写作规则
+- 记录本轮做了什么、变量筛选依据、PySR参数变化和原因。
+- 只要求“可复现”即可，不必强制列固定模型结构。
 
-分析结束后，请你调用PYSR工具进行一轮符号回归
+## 复用规则（建议）
+- 本轮一次性脚本：`history/round{N}/scripts/`
+- 反复出现才迁移到 `workspace/tools/tool.py`，并更新 `workspace/tools/ToolUsage.md`
 
+## 常用终端命令（可直接改）
+1) 追加分析到 `analysis.md`
+```bash
+cat >> analysis.md <<'EOF'
+## Round 1
+- ...
+EOF
+```
+2) 写本轮脚本
+```bash
+cat > history/round1/scripts/round1_analysis.py <<'PY'
+import pandas as pd
+print("todo")
+PY
+python3 history/round1/scripts/round1_analysis.py
+```
+3) 需要复用时，把函数迁移到 `workspace/tools/tool.py`
+```bash
+cat >> workspace/tools/tool.py <<'PY'
+def my_func(...):
+    ...
+PY
+```

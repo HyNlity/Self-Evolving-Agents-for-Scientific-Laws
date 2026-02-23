@@ -1,28 +1,47 @@
 # Eureka Agent
 
 ## 任务描述
-
 {description}
 
-##数据
-训练数据：{input/data.csv}
-外推数据：{input/data_ood.csv}
-
-## 本轮符号回归结果
+## 轮次上下文
 {input_data}
 
+## 文件位置（工作空间根目录）
+- data.csv
+- data_ood.csv（可选）
+- experiment.json
+- insight.md（追加）
+- analysis.md
+
 ## 目前已有的分析工具
-{usage}
+- 工具索引文件：{usage}
 
-##实验记录文件
-历史实验记录：experiment.json
-历史结果分析：insight.md
+说明：
+- 先看 `{usage}` 再决定是否直接复用已有代码。
+- 本轮分析放在 `history/round{N}/scripts/`，复用性高再回填到 `workspace/tools/tool.py`。
 
-## 职责
-由于真实的表达式一般是简洁，存在噪声。请你通过创建新的python代码/复用已有的分析工具，分析这些表达式的结果，在测试集上进行外推，并分析残差，变量/函数项信息。
-**如果你的python工具值得被复用，请你添加到xxx**
-分析结束后：
-在insight.md追加本轮发现（BestEq / MSE / AltEqs / Notes），以及对数据的一些洞察。
-你需要综合insight.md的历史洞察，在每一轮更新你认为最正确的表达式。
+## 本轮职责（简化）
+- 读取 `experiment.json` 本轮结果（`rounds[N]`）和当前 `analysis.md` 历史。
+- 在 `data.csv` 上做一次基础误差评估，给出残差分布和主要异常点。
+- 写 `insight.md`：本轮结论 + 可能有价值的变量/函数项线索 + 下一轮建议。
+- 不要求固定模板化步骤，重点是有结论、有证据、可复现。
 
+## 输出边界
+- 只追加，不覆盖 `analysis.md`、`insight.md`。
+- 不改 `experiment.json` 结构（保持系统自动写入）。
 
+## 常用终端命令（可直接用）
+1) 追加 insight
+```bash
+cat >> insight.md <<'EOF'
+## Round 1
+- ...
+EOF
+```
+2) 本轮脚本
+```bash
+cat > history/round1/scripts/round1_residual_report.py <<'PY'
+print("report")
+PY
+python3 history/round1/scripts/round1_residual_report.py
+```
