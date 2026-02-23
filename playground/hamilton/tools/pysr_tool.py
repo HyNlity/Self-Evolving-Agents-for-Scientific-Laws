@@ -70,11 +70,6 @@ class PySRToolParams(BaseToolParams):
         description="最大评估次数"
     )
 
-    timeout_in_seconds: int = Field(
-        default=300,
-        description="超时时间（秒）"
-    )
-
     # ===== 运算符 =====
 
     binary_operators: list[str] = Field(
@@ -125,7 +120,6 @@ class PySRTool(BaseTool):
         # 执行脚本
         result = session.exec_bash(
             f"cd {workspace_q} && python3 {shlex.quote(script_rel_path)}",
-            timeout=params.timeout_in_seconds,
         )
 
         stdout = result.get("stdout", "") or ""
@@ -197,7 +191,6 @@ class PySRTool(BaseTool):
                 "expression_spec": params.expression_spec.model_dump(),
                 "niterations": params.niterations,
                 "max_evals": params.max_evals,
-                "timeout_in_seconds": params.timeout_in_seconds,
                 "binary_operators": params.binary_operators,
                 "unary_operators": params.unary_operators,
             },
@@ -344,7 +337,6 @@ equations = pysr(
     unary_operators=UNARY_OPS_PLACEHOLDER,
     expression_selection=expressions,
     combine=combine,
-    timeout=TIMEOUT_PLACEHOLDER,
     verbose=True,
     n_jobs=1,
     populations=20,
@@ -400,6 +392,5 @@ print("===EVO_PYSR_RESULTS_JSON_END===")
         code = code.replace("MAX_EVALS_PLACEHOLDER", str(params.max_evals))
         code = code.replace("BINARY_OPS_PLACEHOLDER", binary_ops_json)
         code = code.replace("UNARY_OPS_PLACEHOLDER", unary_ops_json)
-        code = code.replace("TIMEOUT_PLACEHOLDER", str(params.timeout_in_seconds))
 
         return code

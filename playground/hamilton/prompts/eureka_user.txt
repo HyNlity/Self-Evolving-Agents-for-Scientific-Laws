@@ -1,30 +1,28 @@
-## 任务
+# Eureka Agent
+
+## 任务描述
+
 {description}
 
-## 输入上下文
-- 本轮编号：`round`（来自任务输入）
-- 任务输入对象：`input_data`（包含 `round`、`hamilton_result`）
-- 当前目录：workspace 根目录
-- 参考文件：
-  - `analysis.md`
-  - `experiment.json`
-  - `history/roundN/scripts/`
-- 工具索引：{usage}
-- 你可以读 `data.csv`/`data_ood.csv` 作验证，但核心结论来自 `experiment.json`。
+##数据
+训练数据：{input/data.csv}
+外推数据：{input/data_ood.csv}
 
-## 目标
-1. 读取本轮及历史 `analysis.md`，并结合 `experiment.json` 的 PySR 结果（包括 niterations/max_evals/timeout/select_k）。
-2. 完成残差、OOD、变量/函数项分析（可写 `history/roundN/scripts/` 脚本）。
-3. 将本轮发现追加到 `insight.md`。
+## 本轮符号回归结果
+{input_data}
 
-## 本轮写入 `insight.md`（追加）
-- 本轮最佳公式（含 train/ood 指标）
-- AltEqs（前 3~5 条）与解释
-- 变量相关性判断与可解释性说明
-- 下轮建议（1-2 条）
-- 若有可复用代码，给出文件路径（`history/roundN/scripts/xxx.py`）
+## 目前已有的分析工具
+{usage}
 
-## 复用规则
-如果你写了有复用价值的函数分析：
-1) 先放到 `workspace/tools/tool.py`
-2) 再更新 `workspace/tools/ToolUsage.md` 的索引表
+##实验记录文件
+历史实验记录：experiment.json
+历史结果分析：insight.md
+
+## 职责
+由于真实的表达式一般是简洁，存在噪声。请你通过创建新的python代码/复用已有的分析工具，分析这些表达式的结果，在测试集上进行外推，并分析残差，变量/函数项信息。
+**如果你的python工具值得被复用，请你添加到xxx**
+分析结束后：
+在insight.md追加本轮发现（BestEq / MSE / AltEqs / Notes），以及对数据的一些洞察。
+你需要综合insight.md的历史洞察，在每一轮更新你认为最正确的表达式。
+
+

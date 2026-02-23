@@ -1,33 +1,19 @@
-## 任务
+##任务描述
 {description}
 
-## 运行环境（固定）
-- 当前目录为 workspace 根目录（系统提示词里会给绝对路径）。
-- 训练输入：`data.csv`（必需）
-- 外推输入：`data_ood.csv`（可选）
-- 本轮脚本：`history/roundN/scripts/`  
-- 本轮记录：`analysis.md`（追加）
-- 实验记录：`experiment.json`（系统追加）
-- 历史结论：`insight.md`（Eureka 每轮追加）
-- 可复用工具索引：{usage}
-- 输入数据对象：`input_data`（目前包含当前轮次号）
+##数据
+训练数据：{input/data.csv}
+外推数据：{input/data_ood.csv}
 
-## 你要做的事
-1. 先读 `analysis.md` + `insight.md`，确认上一轮结论与 `delta`。
-2. 做变量筛选/公式先验分析（可写脚本，放在 `history/roundN/scripts/`）。
-3. 调用 `pysr_symbolic_regression` 一轮搜索。
-4. 只追加，不覆盖：把本轮结论写回 `analysis.md`。
+##实验记录文件
+已有的数据分析： analysis.md
+历史实验记录：experiment.json
+历史结果分析：insight.md
 
-## 本轮必须明确写在 `analysis.md`
-- 本轮目标：这轮要验证/排除的假设
-- 本轮 `delta`：相对上一轮改了什么（变量/骨架/算子/约束/预算）
-- 本轮实验定义：
-  - y
-  - expression_spec.variable_names
-  - expression_spec.combine（骨架）
-  - operators（binary/unary）
-  - constraints / nested_constraints
-  - niterations、max_evals、timeout_in_seconds、select_k
+## 职责
+通过python工具，对数据进行分析：可能的表达式结构/可能的函数项
+你还需要实现一个创新的方法（数学分析/黑盒模型/相关性分析或者任何），发现x1~x10中真正的与y相关的变量，减少PYSR的复杂性
+分析结束后，请你将本轮对数据的洞察写在analysis.md
 
-## PySR 输入提示
-PySR 工具脚本固定读取 `data.csv`，如需使用 `data_ood.csv`，请在你自己的脚本中显式读取它并做 OOD 评估。
+分析结束后，请你调用PYSR工具进行一轮符号回归
+
