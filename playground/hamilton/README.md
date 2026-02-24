@@ -105,8 +105,8 @@ workspace/
 | 文件 | 写入者 | 内容 | 格式 |
 |------|--------|------|------|
 | **analysis.md** | HamiltonAgent | 分析过程、方法、决策 | `## Round N` + 自由书写 |
-| **experiment.json** | 系统自动 | PySR 参数与结果表 | JSON |
-| **insight.md** | Eureka Agent | 每轮验证结论；顶部 Current Best | `## Round N` + 最小模板 |
+| **experiment.json** | 系统自动 | PySR 参数、运算符选择与结果表 | JSON |
+| **insight.md** | Eureka Agent | 每轮验证结论（含 BestEq/MSE/建议）；顶部 Current Best | `## Round N` + 最小模板 |
 
 ### 迭代流程
 
@@ -119,7 +119,7 @@ Round N 开始
     │
     ├─ HamiltonAgent 执行
     │     ├─ 读取 analysis.md（历史）
-    │     ├─ 变量分析、方法选择
+    │     ├─ 变量分析、方法选择、显式选择本轮运算符集合
     │     ├─ 调用 PySR
     │     │     └─ 系统自动记录参数和结果到 experiment.json
     │     └─ 追加分析过程到 analysis.md

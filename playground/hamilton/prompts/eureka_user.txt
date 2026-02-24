@@ -24,8 +24,9 @@
 
 ## 本轮职责（简化）
 - 读取 `experiment.json` 本轮结果（`rounds[{input_data[round]}]`）和当前 `analysis.md` 历史。
-- 在 `data.csv` 上做一次基础误差/残差评估（最小但可复现）。
-- 写 `insight.md`：本轮结论 + 是否更新 Current Best + 下一轮建议（可执行、可验证）。
+- 重点检查本轮 `pysr_config.binary_operators` / `pysr_config.unary_operators`（以及 `operator_selection.rationale`）是否与误差表现匹配。
+- 在 `data.csv` 上做一次基础误差/残差评估（最小但可复现，可包含主要异常点）。
+- 写 `insight.md`：本轮结论 + 运算符集合评估 + 是否更新 Current Best + 下一轮建议（可执行、可验证）。
 - 不要求固定模板化步骤，重点是有结论、有证据、可复现。
 
 ## 输出边界

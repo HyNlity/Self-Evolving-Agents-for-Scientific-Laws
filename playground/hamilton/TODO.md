@@ -39,8 +39,17 @@ workspace/
 {
   "rounds": {
     "1": {
-      "pysr_config": {...},
-      "results": [...]
+      "pysr_config": {
+        "binary_operators": ["+", "-", "*", "/"],
+        "unary_operators": ["sin", "cos", "exp", "log"],
+        "...": "..."
+      },
+      "operator_selection": {
+        "selected_by": "hamilton_agent",
+        "rationale": "..."
+      },
+      "results": [...],
+      "exit_code": 0
     }
   }
 }
@@ -74,6 +83,7 @@ UPDATE_BEST: yes/no
 
 - **analysis.md** = 唯一的知识库（自由书写）
 - **experiment.json** = 程序可读的 PySR 记录
+- **operators** = 由 Hamilton 每轮基于数据/误差显式选择（记录到 experiment.json）
 - 科学家看笔记的方式：需要什么方法，看历史记录，自己实现
 
 ## 可复用工具（Eureka）

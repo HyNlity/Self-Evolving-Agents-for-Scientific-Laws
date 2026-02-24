@@ -90,7 +90,7 @@ def test_all_params():
 
     # 2. 测试所有参数
     test_cases = [
-        # 最小参数（使用默认值）
+        # 最小参数（显式传入必需运算符）
         {
             "name": "Minimal params",
             "params": {
@@ -99,7 +99,10 @@ def test_all_params():
                     "expressions": ["f"],
                     "variable_names": ["x1", "x2"],
                     "combine": "f(x1, x2)"
-                }
+                },
+                "binary_operators": ["+", "-", "*", "/"],
+                "unary_operators": ["sin", "cos", "exp", "log"],
+                "operator_rationale": "baseline: keep low-arity smooth operators first",
             }
         },
         # 完整参数
@@ -116,6 +119,7 @@ def test_all_params():
                 "max_evals": 50000,
                 "binary_operators": ["+", "-", "*", "/", "^"],
                 "unary_operators": ["sin", "cos", "tan", "exp", "log", "sqrt"],
+                "operator_rationale": "nonlinear trend detected, add tan/sqrt and power",
             }
         },
         # 自定义运算符
@@ -130,6 +134,7 @@ def test_all_params():
                 },
                 "binary_operators": ["+", "-"],
                 "unary_operators": ["sin", "cos"],
+                "operator_rationale": "small-operator search for efficiency",
             }
         },
     ]

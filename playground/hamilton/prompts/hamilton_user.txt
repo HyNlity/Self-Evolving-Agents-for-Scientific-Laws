@@ -7,15 +7,44 @@
 ## 文件位置（工作空间根目录）
 - data.csv
 - data_ood.csv（可选）
+- analysis.md
+- experiment.json
 
 ## 直接可执行的动作
 - 数据文件直接用 `data.csv`、`data_ood.csv` 读取（不要再写 `input/` 前缀）。
 - 本轮分析记录到 `analysis.md`（追加，不要覆盖）。
 - 本轮代码放到 `history/round{input_data[round]}/scripts/`。
+- 若 `round > 1`，先读取 `experiment.json` 中上一轮记录，再确定本轮运算符策略。
 - 先跑一次本轮分析后再调用 `pysr_symbolic_regression`。
+- 调用 `pysr_symbolic_regression` 时，必须显式传入 `binary_operators`、`unary_operators`、`operator_rationale`（由本轮分析得出）。
+
+## 运算符选择最小策略（必须遵守）
+- Round 1：从小而稳健的集合开始（避免盲目放大搜索空间）。
+- Round > 1：明确写出“相对上一轮”的变化（延续/扩展/收缩）和理由。
+- 若误差下降不明显或复杂度持续上升：优先收缩或替换部分运算符，而不是只增加运算符。
+- `operator_rationale` 不能写空话，必须包含可验证证据（误差趋势、残差模式、复杂度或搜索效率）。
+
+## PySR 调用参数模板（示例）
+```json
+{
+  "y": "y",
+  "expression_spec": {
+    "expressions": ["f"],
+    "variable_names": ["x1", "x2"],
+    "combine": "f(x1, x2)"
+  },
+  "niterations": 100,
+  "max_evals": 100000,
+  "binary_operators": ["+", "-", "*", "/"],
+  "unary_operators": ["sin", "cos"],
+  "operator_rationale": "Round {input_data[round]}: residual shows periodic pattern; add sin/cos while keeping search space compact."
+}
+```
 
 ## 写作规则
 - 记录本轮做了什么、变量筛选依据、PySR参数变化和原因。
+- 记录“为什么选择当前运算符集合”，并和上一轮做对比（若有）。
+- 在 `analysis.md` 中明确写出：上一轮operators、本轮operators、变化原因、预期收益。
 - 只要求“可复现”即可，不必强制列固定模型结构。
 
 ## 复用规则（建议）

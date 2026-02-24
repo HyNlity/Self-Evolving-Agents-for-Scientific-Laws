@@ -73,13 +73,16 @@ class PySRToolParams(BaseToolParams):
     # ===== 运算符 =====
 
     binary_operators: list[str] = Field(
-        default=["+", "-", "*", "/"],
-        description="二元运算符列表"
+        description="二元运算符列表（必须由 Hamilton 基于本轮分析显式给出）"
     )
 
     unary_operators: list[str] = Field(
-        default=["sin", "cos", "exp", "log"],
-        description="一元运算符列表，如 ['sin', 'cos', 'exp', 'log']"
+        description="一元运算符列表（必须由 Hamilton 基于本轮分析显式给出）"
+    )
+
+    operator_rationale: str = Field(
+        default="",
+        description="本轮运算符选择理由（建议一句话，便于追踪）"
     )
 
 
@@ -97,6 +100,16 @@ class PySRTool(BaseTool):
             return f"参数解析错误: {str(e)}", {"error": str(e)}
 
         assert isinstance(params, PySRToolParams)
+
+        # 运算符集合必须由 Hamilton 显式传入并去重清洗，避免“固定默认值”隐式生效。
+        binary_ops = self._normalize_operator_list(params.binary_operators)
+        unary_ops = self._normalize_operator_list(params.unary_operators)
+        if not binary_ops:
+            return "参数错误: binary_operators 不能为空，且必须包含有效运算符字符串", {"error": "invalid_binary_operators"}
+        if not unary_ops:
+            return "参数错误: unary_operators 不能为空，且必须包含有效运算符字符串", {"error": "invalid_unary_operators"}
+        params.binary_operators = binary_ops
+        params.unary_operators = unary_ops
 
         # 获取当前轮次 - 从环境变量或默认为 1
         round_num = int(os.environ.get("HAMILTON_ROUND", "1"))
@@ -143,7 +156,28 @@ class PySRTool(BaseTool):
             exit_code=exit_code,
         )
 
-        return output, {"exit_code": exit_code, "recorded": True, "round": round_num, "script": script_rel_path}
+        return output, {
+            "exit_code": exit_code,
+            "recorded": True,
+            "round": round_num,
+            "script": script_rel_path,
+            "binary_operators": params.binary_operators,
+            "unary_operators": params.unary_operators,
+        }
+
+    def _normalize_operator_list(self, operators: list[str]) -> list[str]:
+        """清洗运算符列表：去空格、去空值、去重（保序）。"""
+        normalized: list[str] = []
+        seen: set[str] = set()
+        for op in operators:
+            if not isinstance(op, str):
+                continue
+            token = op.strip()
+            if not token or token in seen:
+                continue
+            normalized.append(token)
+            seen.add(token)
+        return normalized
 
     def _record_to_experiment_json(
         self,
@@ -194,6 +228,12 @@ class PySRTool(BaseTool):
                 "max_evals": params.max_evals,
                 "binary_operators": params.binary_operators,
                 "unary_operators": params.unary_operators,
+            },
+            "operator_selection": {
+                "selected_by": "hamilton_agent",
+                "binary_operators": params.binary_operators,
+                "unary_operators": params.unary_operators,
+                "rationale": params.operator_rationale,
             },
             "results": normalized_results,
             "exit_code": exit_code,
