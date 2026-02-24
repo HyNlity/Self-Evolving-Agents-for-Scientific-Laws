@@ -72,8 +72,8 @@ playground/hamilton/
 ├── prompts/
 │   ├── hamilton_system.txt
 │   ├── hamilton_user.txt
-│   ├── data_analysis_system.txt
-│   └── data_analysis_user.txt
+│   ├── eureka_system.txt
+│   └── eureka_user.txt
 └── TODO.md
 ```
 
@@ -83,7 +83,7 @@ playground/hamilton/
 workspace/
 ├── data.csv              # 输入数据
 ├── analysis.md       # 分析历史（HamiltonAgent 书写）
-├── insight.md            # 靠谱发现（Eureka Agent 书写）
+├── insight.md            # 靠谱发现（Eureka Agent 书写；顶部 Current Best 由系统自动维护）
 ├── experiment.json       # PySR 参数与结果（系统自动记录）
 └── history/
     └── round{N}/
@@ -106,7 +106,7 @@ workspace/
 |------|--------|------|------|
 | **analysis.md** | HamiltonAgent | 分析过程、方法、决策 | `## Round N` + 自由书写 |
 | **experiment.json** | 系统自动 | PySR 参数与结果表 | JSON |
-| **insight.md** | Eureka Agent | BestEq/MSE/AltEqs/Notes/Recommendations | `## Round N` + 最小模板 |
+| **insight.md** | Eureka Agent | 每轮验证结论；顶部 Current Best | `## Round N` + 最小模板 |
 
 ### 迭代流程
 
@@ -138,23 +138,17 @@ Round N 结束 → 进入 Round N+1
 
 ### 1. 新增 Agent
 
-在 `HamiltonPlayground.setup()` 中添加新 Agent：
+Hamilton 基于 `BasePlayground.setup()` 创建 `agents:` 中声明的所有 Agent。
+新增 Agent 的推荐方式：
+
+1) 在配置文件里新增 `agents.<name>`（提示词放在 `playground/hamilton/prompts/`）
+2) 在 `HamiltonPlayground.setup()` / `RoundExp.run()` 中按需取用 `self.agents["<name>"]` 并编排执行顺序
 
 ```python
 # playground.py
 def setup(self):
-    # 现有 Agent
-    self.hamilton_agent = self._create_agent(...)
-    self.eureka_agent = self._create_agent(...)
-
-    # 新增 Agent
-    agents_config = self.config.agents
-    new_agent_config = agents_config['new_agent']
-    self.new_agent = self._create_agent(
-        name="new_agent",
-        agent_config=new_agent_config,
-        ...
-    )
+    super().setup()
+    self.new_agent = self.agents["new_agent"]
 ```
 
 配置文件中添加：
@@ -192,15 +186,12 @@ class NewTool(BaseTool):
         return result, metadata
 ```
 
-在 `create_hamilton_registry()` 中注册：
+在 `HamiltonPlayground._setup_tools()` 中注册：
 
 ```python
-def create_hamilton_registry() -> ToolRegistry:
-    registry = ToolRegistry()
-    tools = [BashTool(), EditorTool(), ThinkTool(), FinishTool(), NewTool()]
-    for tool in tools:
-        registry.register(tool)
-    return registry
+def _setup_tools(self, skill_registry=None) -> None:
+    super()._setup_tools(skill_registry)
+    self.tools.register(NewTool())
 ```
 
 ### 3. 新增分析算法

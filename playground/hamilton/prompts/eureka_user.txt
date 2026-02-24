@@ -4,7 +4,8 @@
 {description}
 
 ## 轮次上下文
-{input_data}
+- round: {input_data[round]}
+- hamilton_result: {input_data[hamilton_result]}
 
 ## 文件位置（工作空间根目录）
 - data.csv
@@ -13,17 +14,18 @@
 - insight.md（追加）
 - analysis.md
 
-## 目前已有的分析工具
-- 工具索引文件：tools/ToolUsage.md
+## 当前最佳表达式（Current Best）
+- `insight.md` 顶部包含一个“Current Best（auto-updated）”区块：它是当前系统认为最可信的表达式。
+- 你本轮要做的关键决策之一：是否更新 Current Best（`update_best`）。
 
-说明：
-- 先看 `tools/ToolUsage.md` 再决定是否直接复用已有代码。
-- 本轮分析放在 `history/round{input_data[round]}/scripts/`，复用性高再回填到 `tools/tool.py`。
+## 可复用工具库（推荐，非必须）
+- `skills/eurekatool/tool.py`（stdlib-only）
+- 你可以在脚本里直接 `from skills.eurekatool import tool`
 
 ## 本轮职责（简化）
 - 读取 `experiment.json` 本轮结果（`rounds[{input_data[round]}]`）和当前 `analysis.md` 历史。
-- 在 `data.csv` 上做一次基础误差评估，给出残差分布和主要异常点。
-- 写 `insight.md`：本轮结论 + 可能有价值的变量/函数项线索 + 下一轮建议。
+- 在 `data.csv` 上做一次基础误差/残差评估（最小但可复现）。
+- 写 `insight.md`：本轮结论 + 是否更新 Current Best + 下一轮建议（可执行、可验证）。
 - 不要求固定模板化步骤，重点是有结论、有证据、可复现。
 
 ## 输出边界
@@ -44,4 +46,9 @@ cat > history/round{input_data[round]}/scripts/round{input_data[round]}_residual
 print("report")
 PY
 python3 history/round{input_data[round]}/scripts/round{input_data[round]}_residual_report.py
+```
+
+3) 可选：生成基础报告块（你再补充决策与结构化信号）
+```bash
+python3 skills/eurekatool/scripts/round_report.py --round {input_data[round]} --recompute
 ```

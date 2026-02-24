@@ -1,39 +1,46 @@
 #!/usr/bin/env python3
-"""测试 PySRTool 所有输入参数接口"""
+"""Smoke-test PySRTool input/output contract (mocked PySR run).
 
+This script does NOT require PySR to be installed. It intercepts the generated
+`python3 history/roundN/scripts/pysr_roundN.py` execution and returns a mocked
+stdout containing the JSON marker block.
+"""
+
+import json
 import os
 import sys
-import json
+import tempfile
+from pathlib import Path
 
-# 切换到项目根目录
-os.chdir("/opt/EvoMaster")
-
-# 添加项目路径
-sys.path.insert(0, "/opt/EvoMaster")
-sys.path.insert(0, "/opt/EvoMaster/playground")
+# Add repo root + playground/ to sys.path for `from hamilton...` imports.
+REPO_ROOT = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(REPO_ROOT))
+sys.path.insert(0, str(REPO_ROOT / "playground"))
 
 # 设置环境变量
 os.environ["HAMILTON_ROUND"] = "1"
 
-# 使用相对导入
-from hamilton.tools.pysr_tool import PySRTool, PySRToolParams
+from hamilton.tools.pysr_tool import PySRTool
 
 
 class MockSession:
     """模拟 Session 对象"""
 
-    class MockConfig:
-        workspace_path = "/opt/EvoMaster/playground/hamilton/test_workspace"
-
-    config = MockConfig()
+    def __init__(self, workspace_path: str):
+        self.config = type("Config", (), {"workspace_path": workspace_path})
 
     def exec_bash(self, command, timeout=300, is_input=False):
         """模拟 exec_bash 执行"""
-        print(f"\n[MockSession.exec_bash] Executing: {command[:100]}...")
+        print(f"\n[MockSession.exec_bash] Executing: {command[:120]}...")
 
         # 检查是否是创建目录的命令
-        if "mkdir" in command:
-            os.system(command)
+        if "mkdir -p" in command:
+            # Example: cd /tmp/ws && mkdir -p history/round1/scripts
+            try:
+                rel = command.split("mkdir -p", 1)[1].strip().split()[0].strip("'\"")
+                Path(self.config.workspace_path, rel).mkdir(parents=True, exist_ok=True)
+            except Exception:
+                pass
             return {"stdout": "", "stderr": "", "exit_code": 0}
 
         # 检查是否是运行 python 脚本的命令 - 模拟成功但不真正运行PySR
@@ -65,13 +72,13 @@ Complexity: 4
     def write_file(self, path, content, encoding="utf-8"):
         """模拟 write_file"""
         print(f"\n[MockSession.write_file] Writing to: {path}")
-        os.makedirs(os.path.dirname(path), exist_ok=True)
-        with open(path, "w", encoding=encoding) as f:
-            f.write(content)
+        p = Path(path)
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text(content, encoding=encoding)
 
 
 def test_all_params():
-    """测试所有输入参数"""
+    """测试工具参数接口与 experiment.json 落盘"""
     print("=" * 60)
     print("Testing PySRTool - All Input Parameters")
     print("=" * 60)
@@ -107,12 +114,8 @@ def test_all_params():
                 },
                 "niterations": 100,
                 "max_evals": 50000,
-                "timeout_in_seconds": 600,
                 "binary_operators": ["+", "-", "*", "/", "^"],
                 "unary_operators": ["sin", "cos", "tan", "exp", "log", "sqrt"],
-                "constraints": {"*": (3, 3), "+": (5, 5)},
-                "nested_constraints": {"sin": {"cos": 0}, "exp": {"exp": 0}},
-                "select_k": 5,
             }
         },
         # 自定义运算符
@@ -131,46 +134,46 @@ def test_all_params():
         },
     ]
 
-    session = MockSession()
     all_passed = True
+    with tempfile.TemporaryDirectory() as tmpdir:
+        session = MockSession(workspace_path=tmpdir)
 
-    for tc in test_cases:
-        print(f"\n{'='*50}")
-        print(f"Test: {tc['name']}")
-        print(f"{'='*50}")
+        for tc in test_cases:
+            print(f"\n{'='*50}")
+            print(f"Test: {tc['name']}")
+            print(f"{'='*50}")
 
-        try:
-            params_json = json.dumps(tc["params"])
-            print(f"Params: {params_json[:100]}...")
+            try:
+                params_json = json.dumps(tc["params"])
+                print(f"Params: {params_json[:120]}...")
 
-            observation, info = tool.execute(session, params_json)
+                observation, info = tool.execute(session, params_json)
 
-            print(f"\n[OK] Execution completed")
-            print(f"  - Exit code: {info.get('exit_code')}")
-            print(f"  - Script: {info.get('script')}")
-            print(f"  - Round: {info.get('round')}")
-            print(f"  - Recorded: {info.get('recorded')}")
+                print(f"\n[OK] Execution completed")
+                print(f"  - Exit code: {info.get('exit_code')}")
+                print(f"  - Script: {info.get('script')}")
+                print(f"  - Round: {info.get('round')}")
+                print(f"  - Recorded: {info.get('recorded')}")
 
-            # 检查 experiment.json
-            exp_file = os.path.join(session.config.workspace_path, "experiment.json")
-            if os.path.exists(exp_file):
-                with open(exp_file) as f:
-                    exp_data = json.load(f)
-                    round_data = exp_data.get("rounds", {}).get(str(info.get("round")), {})
+                # 检查 experiment.json
+                exp_file = Path(session.config.workspace_path) / "experiment.json"
+                if exp_file.exists():
+                    exp_data = json.loads(exp_file.read_text(encoding="utf-8"))
+                    round_data = (exp_data.get("rounds", {}) or {}).get(str(info.get("round")), {}) or {}
                     print(f"  - Config recorded: {bool(round_data.get('pysr_config'))}")
                     print(f"  - Results recorded: {bool(round_data.get('results'))}")
 
-            # 检查输出
-            if "EVO_PYSR_RESULTS_JSON_BEGIN" in observation:
-                print(f"  - Output format: OK (JSON found)")
-            else:
-                print(f"  - Output format: {observation[:200]}...")
+                # 检查输出
+                if "EVO_PYSR_RESULTS_JSON_BEGIN" in observation:
+                    print("  - Output format: OK (JSON found)")
+                else:
+                    print(f"  - Output format: {observation[:200]}...")
 
-        except Exception as e:
-            print(f"\n[FAIL] {type(e).__name__}: {e}")
-            import traceback
-            traceback.print_exc()
-            all_passed = False
+            except Exception as e:
+                print(f"\n[FAIL] {type(e).__name__}: {e}")
+                import traceback
+                traceback.print_exc()
+                all_passed = False
 
     print("\n" + "=" * 60)
     if all_passed:

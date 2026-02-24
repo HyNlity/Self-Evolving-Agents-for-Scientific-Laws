@@ -73,6 +73,7 @@ class BasePlayground:
         # 组件存储
         self.session = None
         self.agent = None
+        self.agents: dict[str, Any] = {}
         self.tools = None
     
     def _start_loop_in_thread(self) -> threading.Thread:
@@ -356,21 +357,54 @@ class BasePlayground:
         system_prompt_file = agent_config.get('system_prompt_file')
         user_prompt_file = agent_config.get('user_prompt_file')
 
+        def _infer_playground_base() -> Path | None:
+            """
+            Infer `<repo_root>/playground/<subdir>` from a `configs/<subdir>` config_dir.
 
-        playground_base = Path(str(self.config_dir).replace("configs", "playground"))
-        # 解析 system_prompt_file
-        if system_prompt_file:
-            prompt_path = Path(system_prompt_file)
-            if not prompt_path.is_absolute():
-                # 修改：相对于 playground_base 解析
-                system_prompt_file = str((playground_base / prompt_path).resolve())
-        
-        # 解析 user_prompt_file
-        if user_prompt_file:
-            prompt_path = Path(user_prompt_file)
-            if not prompt_path.is_absolute():
-                # 修改：相对于 playground_base 解析
-                user_prompt_file = str((playground_base / prompt_path).resolve())
+            This replaces the old brittle `str.replace("configs", "playground")` logic.
+            """
+            try:
+                cfg_dir = self.config_dir.resolve()
+            except Exception:
+                cfg_dir = Path(self.config_dir)
+
+            for anc in [cfg_dir] + list(cfg_dir.parents):
+                if anc.name != "configs":
+                    continue
+                repo_root = anc.parent
+                try:
+                    rel = cfg_dir.relative_to(anc)
+                except Exception:
+                    rel = Path()
+                return (repo_root / "playground" / rel).resolve()
+            return None
+
+        playground_base = _infer_playground_base()
+
+        def _resolve_prompt_file(path_value: str | None) -> str | None:
+            if not path_value:
+                return path_value
+            prompt_path = Path(path_value)
+            if prompt_path.is_absolute():
+                return str(prompt_path)
+
+            # 1) Prefer config_dir-relative paths (stable & explicit).
+            cand_cfg = (self.config_dir / prompt_path)
+            if cand_cfg.exists():
+                return str(cand_cfg.resolve())
+
+            # 2) Backward-compat: if config_dir is under `configs/`, treat prompt paths as relative
+            #    to the matching `playground/<subdir>/` folder.
+            if playground_base is not None:
+                cand_pg = (playground_base / prompt_path)
+                if cand_pg.exists():
+                    return str(cand_pg.resolve())
+                return str(cand_pg.resolve())
+
+            return str(cand_cfg.resolve())
+
+        system_prompt_file = _resolve_prompt_file(system_prompt_file)
+        user_prompt_file = _resolve_prompt_file(user_prompt_file)
 
         # 获取提示词格式化参数（如果有）
         prompt_format_kwargs = agent_config.get('prompt_format_kwargs', {})
@@ -435,6 +469,12 @@ class BasePlayground:
             skills_root = Path(skills_config.get("skills_root", "evomaster/skills"))
             skill_registry = SkillRegistry(skills_root)
             self.logger.info(f"Loaded {len(skill_registry.get_all_skills())} skills")
+        
+        # Expose for subclasses that need to inspect/augment skills/tools.
+        try:
+            setattr(self, "skill_registry", skill_registry)
+        except Exception:
+            pass
 
         # 4. 创建工具注册表并初始化 MCP 工具（传入 skill_registry）
         self._setup_tools(skill_registry)
@@ -449,18 +489,41 @@ class BasePlayground:
                     "Expected a non-empty dictionary with agent names as keys."
                 )
             
+            agents: dict[str, Any] = {}
+
             # 创建多个 agent
             for agent_name, agent_config in agents_config.items():
+                if not isinstance(agent_config, dict):
+                    raise ValueError(f"Invalid agents.{agent_name} config, expected dict")
                 enable_tools = agent_config.get('enable_tools', True)
-                self.agent = self._create_agent(
-                    name=agent_name,
+                agent_llm_config = llm_config_dict
+                llm_name = agent_config.get("llm")
+                if llm_name:
+                    agent_llm_config = self.config_manager.get_llm_config(llm_name)
+                agent = self._create_agent(
+                    name=str(agent_name),
                     agent_config=agent_config,
                     enable_tools=enable_tools,
-                    llm_config_dict=llm_config_dict,
+                    llm_config_dict=agent_llm_config,
                     skill_registry=skill_registry,  # 传递 skill_registry
                 )
-                self.logger.info(f"{agent_name.capitalize()} Agent created")
-            
+                agents[str(agent_name)] = agent
+                self.logger.info(f"{str(agent_name).capitalize()} Agent created")
+
+            self.agents = agents
+
+            # Backward-compat: keep `self.agent` for code paths that assume single-agent.
+            if "default" in agents:
+                self.agent = agents["default"]
+            else:
+                self.agent = next(iter(agents.values()))
+                if len(agents) > 1:
+                    self.logger.warning(
+                        "Multi-agent config detected (agents=%s). "
+                        "BasePlayground.run() only uses `self.agent`; override run()/_create_exp() for orchestration.",
+                        list(agents.keys()),
+                    )
+
             self.logger.info("Multi-agent playground setup complete")
         else:
             # 单 agent 模式（向后兼容）
@@ -489,13 +552,18 @@ class BasePlayground:
             
             # 创建单个 agent
             enable_tools = agent_config_dict.get('enable_tools', True)
+            agent_llm_config = llm_config_dict
+            llm_name = agent_config_dict.get("llm") if isinstance(agent_config_dict, dict) else None
+            if llm_name:
+                agent_llm_config = self.config_manager.get_llm_config(llm_name)
             self.agent = self._create_agent(
                 name="default",
                 agent_config=agent_config_dict,
                 enable_tools=enable_tools,
-                llm_config_dict=llm_config_dict,
+                llm_config_dict=agent_llm_config,
                 skill_registry=skill_registry,
             )
+            self.agents = {"default": self.agent}
             
             self.logger.info("Single-agent playground setup complete")
 

@@ -6,7 +6,7 @@
 每轮:
   HamiltonAgent → analysis.md (自由书写)
   系统自动 → experiment.json (PySR 参数和结果)
-  Eureka Agent → insight.md (BestEq/MSE/AltEqs/Notes/Recommendations)
+  Eureka Agent → insight.md (每轮验证结论 + Current Best)
 ```
 
 ## 目录
@@ -15,7 +15,7 @@
 workspace/
 ├── data.csv
 ├── analysis.md    # 分析历史（格式: ## Round N，自由书写）
-├── insight.md         # 靠谱发现（格式: ## Round N）
+├── insight.md         # 靠谱发现（每轮追加；顶部 Current Best 自动维护）
 ├── experiment.json     # PySR 参数和结果（系统自动）
 └── history/
     └── round{N}/
@@ -49,6 +49,13 @@ workspace/
 ### insight.md (Eureka Agent 写)
 
 ```markdown
+<!-- EVO_CURRENT_BEST_BEGIN -->
+## Current Best (auto-updated)
+- Round: ...
+- Equation: ...
+- MSE: ...
+<!-- EVO_CURRENT_BEST_END -->
+
 ## Round N
 
 BestEq: ...
@@ -58,6 +65,9 @@ Notes: ...
 
 Recommendations:
 - ...
+
+SATISFIED: yes/no
+UPDATE_BEST: yes/no
 ```
 
 ## 迭代
@@ -68,7 +78,6 @@ Recommendations:
 
 ## 可复用工具（Eureka）
 
-- 可复用分析能力维护在 Operator Skill: `evomaster/skills/eurekatool/`
+- 可复用分析能力维护在：`evomaster/skills/eurekatool/`（stdlib-only）
 - 在 Hamilton workspace 中会映射为：`skills/eurekatool/`
-- 说明书分层加载：`use_skill(get_info)` / `use_skill(get_reference)`
-- 代码复用通过 Python import（不需要用 use_skill 调用函数）
+- 代码复用：在脚本中直接 `from skills.eurekatool import tool`

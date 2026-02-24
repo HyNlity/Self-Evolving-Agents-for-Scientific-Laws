@@ -26,7 +26,6 @@
 1) 追加分析到 `analysis.md`
 ```bash
 cat >> analysis.md <<'EOF'
-## Round {input_data[round]}
 - ...
 EOF
 ```

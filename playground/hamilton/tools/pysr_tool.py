@@ -178,6 +178,7 @@ class PySRTool(BaseTool):
             if not isinstance(equation, str):
                 continue
             normalized_results.append({
+                "rank": item.get("rank"),
                 "equation": equation,
                 "mse": item.get("mse", item.get("loss")),
                 "complexity": item.get("complexity"),

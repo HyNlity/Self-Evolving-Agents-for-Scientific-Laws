@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import sys
 import threading
 from abc import ABC, abstractmethod
@@ -62,9 +63,8 @@ class BaseAgent(ABC):
     _trajectory_file_path: Path | None = None
     _trajectory_file_lock = threading.Lock()
 
-    # 类级别的当前exp信息（所有agent实例共享）
-    _current_exp_name: str | None = None
-    _current_exp_index: int | None = None
+    # Current exp info is stored thread-locally so parallel workloads do not overwrite each other.
+    _exp_info_local = threading.local()
 
     def __init__(
         self,
@@ -589,7 +589,7 @@ class BaseAgent(ABC):
 
     @classmethod
     def set_exp_info(cls, exp_name: str, exp_index: int) -> None:
-        """设置当前exp信息（类级别，所有agent实例共享）
+        """设置当前exp信息（线程本地）
 
         在exp运行时调用，用于记录当前step属于哪个exp阶段和迭代。
 
@@ -597,8 +597,11 @@ class BaseAgent(ABC):
             exp_name: exp阶段名称（如 "Solver", "Critic", "Rewriter", "Selector"）
             exp_index: 迭代序号（如 0, 1, 2, 3, 4）
         """
-        cls._current_exp_name = exp_name
-        cls._current_exp_index = exp_index
+        setattr(cls._exp_info_local, "name", str(exp_name))
+        try:
+            setattr(cls._exp_info_local, "index", int(exp_index))
+        except Exception:
+            setattr(cls._exp_info_local, "index", None)
     
     def set_agent_name(self, name: str) -> None:
         """设置Agent名称（用于标识不同的agent）
@@ -634,105 +637,146 @@ class BaseAgent(ABC):
             return
 
         try:
+            # 构建新的轨迹条目
+            # 格式与现有轨迹格式保持一致，但保存的是每次LLM调用的信息
+            task_id = self.trajectory.task_id if self.trajectory else "unknown"
+            status = self.trajectory.status if self.trajectory else "running"
+
+            # 将dialog_for_query转换为字典格式
+            prompt_dict = dialog_for_query.model_dump() if hasattr(dialog_for_query, 'model_dump') else {
+                "messages": [
+                    {
+                        "role": msg.role.value if hasattr(msg.role, 'value') else str(msg.role),
+                        "content": msg.content if hasattr(msg, 'content') else str(msg)
+                    }
+                    for msg in dialog_for_query.messages
+                ],
+                "tools": dialog_for_query.tools if hasattr(dialog_for_query, 'tools') else []
+            }
+
+            # 从step_record中获取assistant_message
+            assistant_message = step_record.assistant_message
+
+            # 将assistant_message转换为字典格式
+            response_dict = assistant_message.model_dump() if hasattr(assistant_message, 'model_dump') else {
+                "role": assistant_message.role.value if hasattr(assistant_message.role, 'value') else str(assistant_message.role),
+                "content": assistant_message.content if hasattr(assistant_message, 'content') else "",
+                "tool_calls": [
+                    {
+                        "id": tc.id if hasattr(tc, 'id') else "",
+                        "function": {
+                            "name": tc.function.name if hasattr(tc.function, 'name') else "",
+                            "arguments": tc.function.arguments if hasattr(tc.function, 'arguments') else ""
+                        }
+                    }
+                    for tc in (assistant_message.tool_calls or [])
+                ] if hasattr(assistant_message, 'tool_calls') and assistant_message.tool_calls else []
+            }
+
+            # 将tool_responses转换为字典格式
+            tool_responses_list = []
+            for tr in step_record.tool_responses:
+                tr_dict = tr.model_dump() if hasattr(tr, 'model_dump') else {
+                    "role": "tool",
+                    "content": tr.content if hasattr(tr, 'content') else "",
+                    "tool_call_id": tr.tool_call_id if hasattr(tr, 'tool_call_id') else "",
+                    "name": tr.name if hasattr(tr, 'name') else ""
+                }
+                tool_responses_list.append(tr_dict)
+
+            exp_name = getattr(self._exp_info_local, "name", None)
+            exp_index = getattr(self._exp_info_local, "index", None)
+
+            # 构建轨迹条目，格式与现有轨迹格式保持一致
+            entry = {
+                "task_id": f"{task_id}_{self._agent_name or 'agent'}_step_{self._step_count}",
+                "exp_name": exp_name,      # exp阶段名称
+                "exp_index": exp_index,    # exp迭代序号
+                "status": status,
+                "steps": self._step_count,
+                "trajectory": {
+                    "task_id": task_id,
+                    "agent_name": self._agent_name or "unknown",
+                    "step": self._step_count,
+                    "dialogs": [prompt_dict],  # 保存本次调用的prompt
+                    "steps": [
+                        {
+                            "step_id": self._step_count,
+                            "assistant_message": response_dict,  # 保存本次调用的response
+                            "tool_responses": tool_responses_list,  # 保存工具响应
+                            "meta": {}
+                        }
+                    ],
+                    "start_time": None,
+                    "end_time": None,
+                    "status": status,
+                    "result": {
+                        "prompt": prompt_dict,
+                        "response": response_dict
+                    },
+                    "meta": {
+                        "agent_version": self.VERSION,
+                        "agent_name": self._agent_name or "unknown",
+                        "step": self._step_count
+                    }
+                }
+            }
+
+            entry_json = json.dumps(entry, ensure_ascii=False, indent=2, default=str)
+            entry_text = "\n".join("  " + line for line in entry_json.splitlines())
+            entry_bytes = entry_text.encode("utf-8")
+
+            path = self._trajectory_file_path
             with self._trajectory_file_lock:
-                # 读取现有数据
-                existing_data = []
-                if self._trajectory_file_path.exists():
+                # Fast path: append into an existing JSON array without loading the full file.
+                try:
+                    if not path.exists() or path.stat().st_size == 0:
+                        with open(path, "wb") as f:
+                            f.write(b"[\n")
+                            f.write(entry_bytes)
+                            f.write(b"\n]\n")
+                        return
+
+                    with open(path, "rb+") as f:
+                        f.seek(0, os.SEEK_END)
+                        file_size = int(f.tell() or 0)
+                        tail_size = min(file_size, 16 * 1024)
+                        f.seek(max(0, file_size - tail_size))
+                        tail = f.read(tail_size)
+
+                        idx = tail.rfind(b"]")
+                        if idx < 0:
+                            raise ValueError("trajectory file missing closing bracket")
+
+                        # Determine if the array already has elements by scanning back for previous non-ws byte.
+                        j = idx - 1
+                        while j >= 0 and tail[j] in b" \t\r\n":
+                            j -= 1
+                        prev = tail[j] if j >= 0 else None
+                        non_empty = (prev is not None) and (prev != ord("["))
+
+                        insert_pos = (file_size - tail_size) + idx
+
+                        f.seek(insert_pos)
+                        suffix = f.read()
+                        f.seek(insert_pos)
+                        f.write((b",\n" if non_empty else b"\n") + entry_bytes + b"\n")
+                        f.write(suffix)
+                        return
+                except Exception:
+                    # Fallback: load & rewrite (keeps robustness when trajectory.json is corrupted).
+                    existing_data: list[Any] = []
                     try:
-                        with open(self._trajectory_file_path, 'r', encoding='utf-8') as f:
-                            existing_data = json.load(f)
-                    except (json.JSONDecodeError, FileNotFoundError):
-                        # 如果文件损坏或不存在，从空列表开始
+                        with open(path, "r", encoding="utf-8") as f:
+                            loaded = json.load(f)
+                        if isinstance(loaded, list):
+                            existing_data = loaded
+                    except Exception:
                         existing_data = []
 
-                # 构建新的轨迹条目
-                # 格式与现有轨迹格式保持一致，但保存的是每次LLM调用的信息
-                task_id = self.trajectory.task_id if self.trajectory else "unknown"
-                status = self.trajectory.status if self.trajectory else "running"
-
-                # 将dialog_for_query转换为字典格式
-                prompt_dict = dialog_for_query.model_dump() if hasattr(dialog_for_query, 'model_dump') else {
-                    "messages": [
-                        {
-                            "role": msg.role.value if hasattr(msg.role, 'value') else str(msg.role),
-                            "content": msg.content if hasattr(msg, 'content') else str(msg)
-                        }
-                        for msg in dialog_for_query.messages
-                    ],
-                    "tools": dialog_for_query.tools if hasattr(dialog_for_query, 'tools') else []
-                }
-
-                # 从step_record中获取assistant_message
-                assistant_message = step_record.assistant_message
-
-                # 将assistant_message转换为字典格式
-                response_dict = assistant_message.model_dump() if hasattr(assistant_message, 'model_dump') else {
-                    "role": assistant_message.role.value if hasattr(assistant_message.role, 'value') else str(assistant_message.role),
-                    "content": assistant_message.content if hasattr(assistant_message, 'content') else "",
-                    "tool_calls": [
-                        {
-                            "id": tc.id if hasattr(tc, 'id') else "",
-                            "function": {
-                                "name": tc.function.name if hasattr(tc.function, 'name') else "",
-                                "arguments": tc.function.arguments if hasattr(tc.function, 'arguments') else ""
-                            }
-                        }
-                        for tc in (assistant_message.tool_calls or [])
-                    ] if hasattr(assistant_message, 'tool_calls') and assistant_message.tool_calls else []
-                }
-
-                # 将tool_responses转换为字典格式
-                tool_responses_list = []
-                for tr in step_record.tool_responses:
-                    tr_dict = tr.model_dump() if hasattr(tr, 'model_dump') else {
-                        "role": "tool",
-                        "content": tr.content if hasattr(tr, 'content') else "",
-                        "tool_call_id": tr.tool_call_id if hasattr(tr, 'tool_call_id') else "",
-                        "name": tr.name if hasattr(tr, 'name') else ""
-                    }
-                    tool_responses_list.append(tr_dict)
-
-                # 构建轨迹条目，格式与现有轨迹格式保持一致
-                entry = {
-                    "task_id": f"{task_id}_{self._agent_name or 'agent'}_step_{self._step_count}",
-                    "exp_name": self._current_exp_name,      # exp阶段名称
-                    "exp_index": self._current_exp_index,    # exp迭代序号
-                    "status": status,
-                    "steps": self._step_count,
-                    "trajectory": {
-                        "task_id": task_id,
-                        "agent_name": self._agent_name or "unknown",
-                        "step": self._step_count,
-                        "dialogs": [prompt_dict],  # 保存本次调用的prompt
-                        "steps": [
-                            {
-                                "step_id": self._step_count,
-                                "assistant_message": response_dict,  # 保存本次调用的response
-                                "tool_responses": tool_responses_list,  # 保存工具响应
-                                "meta": {}
-                            }
-                        ],
-                        "start_time": None,
-                        "end_time": None,
-                        "status": status,
-                        "result": {
-                            "prompt": prompt_dict,
-                            "response": response_dict
-                        },
-                        "meta": {
-                            "agent_version": self.VERSION,
-                            "agent_name": self._agent_name or "unknown",
-                            "step": self._step_count
-                        }
-                    }
-                }
-
-                # 追加新条目
-                existing_data.append(entry)
-
-                # 写回文件
-                with open(self._trajectory_file_path, 'w', encoding='utf-8') as f:
-                    json.dump(existing_data, f, indent=2, default=str, ensure_ascii=False)
+                    existing_data.append(entry)
+                    with open(path, "w", encoding="utf-8") as f:
+                        json.dump(existing_data, f, indent=2, default=str, ensure_ascii=False)
 
         except Exception as e:
             # 如果保存失败，只记录日志，不中断执行

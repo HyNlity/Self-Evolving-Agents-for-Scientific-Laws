@@ -20,12 +20,12 @@
   - 但 `_setup_session()` 直接调用 `self.config.session.get(...)`，这要求 `self.config.session` 必须是 dict（否则会 AttributeError）。
   - 这类“动态鸭子类型”会让下游 playground（如 Hamilton）在读取 config 时出现隐蔽 bug，需要进一步追踪 `ConfigManager.load()` 的返回类型来统一约束。
 - 进一步确认：`ConfigManager.load()` 返回的是 Pydantic 模型 `EvoMasterConfig`，其中 `session/llm/agent` 明确是 `dict` 字段，而 `logging/env/skill` 等是子模型字段；同时 `BaseConfig.Config.extra="allow"` 允许 playground 自定义字段（如 `agents`、`experiment`）直接以“原始 dict”挂到 config 上。
-- `BasePlayground._create_agent()` 对提示词路径的解析使用了 `str(self.config_dir).replace("configs", "playground")` 来推断 `playground/<agent>/...` 根目录，这个做法较脆弱（依赖c目录命名、字符串替换、可能误替换路径中其它同名片段），建议改为基于 `Path.parts` 的显式拼接。
+- `BasePlayground._create_agent()` 的提示词路径解析已从脆弱的字符串替换（`configs` -> `playground`）改为“显式推断 `configs/<subdir>` 对应 `playground/<subdir>`”，并优先支持 `config_dir` 相对路径（更稳定/更可移植）。
 - 结合 `evomaster/agent/agent.py:load_prompt_from_file()` 可见：Agent 解析相对 prompt 路径默认是“相对于 config_dir”；而 prompts 实际放在 `playground/<name>/prompts/`，因此目前只能在 `BasePlayground._create_agent()` 里做路径重写才能工作。这暴露了一个框架层面的路径约定不一致：
   - 方案A：约定 prompts 跟随 configs（`configs/<agent>/prompts/...`），避免重写；
   - 方案B：引入 `prompt_root`/`playground_dir` 配置项或 `ConfigManager` 提供 `resolve_playground_path()`，由统一方法解析；
   - 方案C：Agent 的 `config_dir` 语义改为“playground 根目录”，而非“configs 目录”（需要梳理兼容性）。
-- `BasePlayground.setup()` 的“多 agent 模式”实现目前会在循环中不断覆盖 `self.agent`（只保留最后一个 agent），更合理的做法是维护 `self.agents: dict[str, Agent]`；否则框架层面的 multi-agent 能力实际上不可用/容易误用（Hamilton 自己实现双 agent，绕开了该问题）。
+- `BasePlayground.setup()` 的“多 agent 模式”已改为维护 `self.agents: dict[str, Agent]`（并保留 `self.agent` 作为向后兼容的 single-agent 默认），避免“循环覆盖只剩最后一个 agent”的隐性 bug。
 - `playground/hamilton/core/exp.py`（`RoundExp`）的关键点与潜在问题：
   - `_init_round_files()` 在检测到 `analysis.md` 已包含 `## Round N` 时直接 `return`，会连带跳过 `experiment.json` 的初始化/结构修复；更合理的是“跳过写 header 但仍确保 experiment.json 存在且结构完整”。
   - 单轮返回结构里只保留了 `hamilton_trajectory`（字段名 `trajectory`），Eureka 的轨迹未返回/未记录（如果后续要诊断 eureka 的行为，会缺关键证据）。
@@ -40,13 +40,10 @@
   - `load_experiment()/get_round_record()/pick_best_equation()/format_alt_eqs()` 等用于稳定生成 BestEq/AltEqs 的函数；
   - `safe_eval_expr()/residual_summary()` 等用于做残差复算与异常点摘要（具备 AST 白名单，避免直接 eval 的风险）。
   这与 Eureka agent 的职责高度契合；相比之下，`workspace/tools/tool.py` 仍为空，建议 prompts 侧优先引导使用 `skills/eurekatool`，或至少说明两者分工，避免重复体系。
-- `evomaster/skills/eurekatool/scripts/round_report.py` 会打印一个 `insight.md` block，其中包含 `Recommendations:` 小节；这与当前 Eureka prompts 的“是否需要 Recommendations 字段”存在不一致。建议把“insight 模板”作为单一事实来源（例如：以 round_report 输出为准），并同步修正 `data_analysis_system.txt`/`data_analysis_user.txt` 的模板约束。
+- `evomaster/skills/eurekatool/scripts/round_report.py` 会打印一个 `insight.md` block，其中包含 `Recommendations:` 小节；这与当前 Eureka prompts 的模板字段要求需要保持一致。建议把“insight 模板”作为单一事实来源（例如：以 round_report 输出为准），并同步修正 `eureka_system.txt`/`eureka_user.txt` 的模板约束。
 - prompts 初步审查（Hamilton/Eureka）：
   - `hamilton_system.txt` / `hamilton_user.txt`：目标与交付物清晰，强调“每轮 delta + 实验定义 + 落盘到 analysis.md”，整体质量较好。
-  - `data_analysis_system.txt` / `data_analysis_user.txt`（Eureka Agent）：存在明显不一致与潜在冲突：
-    - 系统提示词给出的 `insight.md` 最小模板不含 `Recommendations` 字段，但用户提示词却要求包含 “Notes + Recommendations”，会导致输出不稳定。
-    - 系统提示词推荐使用工作目录内的 `tools/tool.py`（函数库），但当前 `tools/tool.py` 仍是占位，且同时又要求“尽量用 eurekatool 并把能力升级到 skills/eurekatool/”，工具体系重复且路径跨目录。
-    - 若 Session 的 workspace 不是仓库根目录，用户提示词要求修改 `skills/eurekatool/` 可能与 Agent 系统提示词的“不得切换工作目录”约束冲突（需要在框架/配置层统一工作区语义）。
+  - `eureka_system.txt` / `eureka_user.txt`：需要避免“自然语言关键字触发早停”这类脆弱机制，优先让 Eureka 输出结构化信号供系统判断是否早停/是否更新 Current Best。
 - `configs/hamilton/config.yaml` 显示已尝试在配置层解决“工作区限制 vs 复用能力”的冲突：
   - `session.local.working_dir` 固定为 `./playground/hamilton/workspace`（即把 workspace 放在仓库内的固定目录，保证 `tools/`、历史文件等相对路径可用）。
   - `session.local.symlinks` 把 `evomaster/skills/eurekatool` 映射进 workspace 的 `skills/eurekatool`，从而允许 Eureka 在“不切换目录”的约束下维护可复用能力（这是一个对齐系统提示词约束的好设计）。
@@ -59,10 +56,9 @@
 ## Updates (Hamilton fixes applied)
 - 已修复/加固（Hamilton 范围内）：
   - PySRTool：改为写脚本文件执行，避免 `python -c` 引号/注入脆弱性；stdout 输出 JSON 结果块优先解析；experiment.json 读写容错。
-  - RoundExp：不再因 analysis.md 已初始化而跳过 experiment.json 初始化；结果提取复用 BaseExp；返回结构保留 `trajectory` 兼容字段并新增 `hamilton_trajectory/eureka_trajectory`。
-  - HamiltonPlayground：新增 workspace seed（tools/ + 可选 data.csv）；强校验 data.csv 必须存在；experiment_record 改为可 JSON 序列化的摘要；支持 per-agent LLM 配置选择。
-  - prompts：统一 `insight.md` 模板包含 Recommendations；修正 system/user prompt 中“新增可复用函数写入哪里”的冲突（优先升级到 skills/eurekatool）。
-- 已新增 stdlib-only 单元测试覆盖关键解析/落盘逻辑，并通过 `python -m unittest`。
+  - RoundExp：解析 Eureka 结构化信号（用于早停/更新 Current Best）；返回 `hamilton_trajectory/eureka_trajectory`（不再混用 `trajectory` 别名）。
+  - HamiltonPlayground：workspace seed（tools/ + 可选 data.csv）；强校验 data.csv 必须存在；experiment_record 只保存摘要；setup 复用 BasePlayground（含 MCP/Skills/多 agent 初始化）并对 Eureka 工具集做 scope（不允许 PySRTool）。
+  - prompts：Eureka 输出结构化信号，避免 finish 文本关键字误触发“完成”早停。
 - `evomaster/env/local.py` 的 symlink 实现是“把源目录下的每个条目逐个 symlink 到 workspace/目标目录”，而不是把整个目录做一个 symlink：
   - 优点：目标目录始终是普通目录，结构稳定；编辑目标文件会直接改到源文件（因为是 symlink）。
   - 风险：每次 setup 会在目标路径存在且非 symlink 时 `shutil.rmtree(target_path)`，可能删除目标目录中“非源目录带入”的额外文件（如果用户在 workspace 里临时加了内容，会被清理）。

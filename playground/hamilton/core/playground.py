@@ -20,51 +20,9 @@ if str(project_root) not in sys.path:
     sys.path.insert(0, str(project_root))
 
 from evomaster.core import BasePlayground, register_playground
-from evomaster.agent.tools import ToolRegistry
-from evomaster.agent.tools.base import BaseTool
-from evomaster.agent.tools.builtin import BashTool, EditorTool, ThinkTool, FinishTool
 from evomaster.skills import SkillRegistry
-from typing import TYPE_CHECKING
-
-if TYPE_CHECKING:
-    from evomaster.agent import Agent
 
 from .exp import RoundExp
-
-
-def create_hamilton_registry(
-    skill_registry: SkillRegistry | None = None,
-    exclude_pysr_tool: bool = False,
-) -> ToolRegistry:
-    """创建Hamilton专用的工具注册表"""
-    registry = ToolRegistry()
-
-    # 内置工具
-    tools = [
-        BashTool(),
-        EditorTool(),
-        ThinkTool(),
-        FinishTool(),
-    ]
-
-    # SkillTool - Operator Skills（可选）
-    if skill_registry is not None:
-        from evomaster.agent.tools.skill import SkillTool
-        tools.append(SkillTool(skill_registry))
-
-    # PySRTool - Hamilton专用
-    try:
-        from ..tools.pysr_tool import PySRTool
-        if not exclude_pysr_tool:
-            tools.append(PySRTool())
-    except ImportError as e:
-        logging.warning(f"PySRTool not loaded: {e}")
-
-    # 注册所有工具
-    for tool in tools:
-        registry.register(tool)
-
-    return registry
 
 
 @register_playground("hamilton")
@@ -104,8 +62,6 @@ class HamiltonPlayground(BasePlayground):
             "rounds": [],
             "start_time": datetime.now().isoformat(),
         }
-
-        self.mcp_manager = None
 
     def set_run_dir(self, run_dir: str | Path, task_id: str | None = None) -> None:
         """设置 run 目录并为 Hamilton 初始化 workspace 模板。
@@ -157,77 +113,47 @@ class HamiltonPlayground(BasePlayground):
             # seed 失败不应阻断运行（但会导致后续缺文件时显式报错）
             self.logger.warning(f"Failed to seed Hamilton workspace template: {e}", exc_info=True)
 
+    def _setup_tools(self, skill_registry=None) -> None:
+        """Hamilton toolset = default tools + PySRTool."""
+        super()._setup_tools(skill_registry)
+        try:
+            from ..tools.pysr_tool import PySRTool
+
+            if self.tools is not None:
+                self.tools.register(PySRTool())
+        except Exception as e:
+            self.logger.warning(f"PySRTool not loaded: {e}")
+
     def setup(self) -> None:
-        """初始化组件"""
+        """初始化组件（复用 BasePlayground.setup）"""
         self.logger.info("Setting up Hamilton playground...")
+        super().setup()
 
-        # 1. LLM配置
-        llm_config_dict = self._setup_llm_config()
-        self._llm_config_dict = llm_config_dict
+        if self.session is not None:
+            try:
+                self.workspace_dir = Path(self.session.config.workspace_path)
+            except Exception:
+                self.workspace_dir = None
 
-        # 2. Session
-        self._setup_session()
-        self.workspace_dir = Path(self.session.config.workspace_path)
+        self.hamilton_agent = self.agents.get("hamilton")
+        self.eureka_agent = self.agents.get("eureka")
+        if self.hamilton_agent is None or self.eureka_agent is None:
+            raise ValueError("Hamilton requires agents.hamilton and agents.eureka in config.yaml")
 
-        # 3. Skills（可选）
-        self.skill_registry = None
-        config_dict = self.config.model_dump()
-        skills_config = config_dict.get("skills", {})
-        if skills_config.get("enabled", False):
-            skills_root = Path(skills_config.get("skills_root", "evomaster/skills"))
-            self.skill_registry = SkillRegistry(skills_root)
-            self.logger.info(f"Loaded {len(self.skill_registry.get_all_skills())} skills")
+        # Scope Eureka tools to exclude PySR (Eureka should analyze results, not run regression).
+        try:
+            from evomaster.agent.tools.base import ToolRegistry
 
-        # 4. Tools - 为不同 Agent 准备专用工具注册表
-        self.hamilton_tools = create_hamilton_registry(skill_registry=self.skill_registry)
-        self.eureka_tools = create_hamilton_registry(skill_registry=self.skill_registry, exclude_pysr_tool=True)
-        self.tools = self.hamilton_tools
-        self.logger.info(f"Loaded Hamilton tools: {self.hamilton_tools.get_tool_names()}")
-        self.logger.info(f"Loaded Eureka tools: {self.eureka_tools.get_tool_names()}")
-
-        # 5. 创建 HamiltonAgent 和 Eureka Agent
-        agents_config = getattr(self.config, 'agents', {})
-        if not agents_config:
-            raise ValueError("No agents configuration found")
-
-        def _get_agent_llm_config(agent_cfg: dict) -> dict:
-            """为单个 agent 选择 LLM 配置（支持 per-agent 覆盖）。"""
-            llm_name = agent_cfg.get("llm")
-            if llm_name:
-                return self.config_manager.get_llm_config(llm_name)
-            return llm_config_dict
-
-        # HamiltonAgent - 主分析Agent
-        if 'hamilton' not in agents_config:
-            raise ValueError("No 'hamilton' agent configuration found")
-
-        hamilton_config = agents_config['hamilton']
-        hamilton_llm_config = _get_agent_llm_config(hamilton_config)
-        self.hamilton_agent = self._create_agent(
-            name="hamilton",
-            agent_config=hamilton_config,
-            enable_tools=hamilton_config.get('enable_tools', True),
-            llm_config_dict=hamilton_llm_config,
-            tools=self.hamilton_tools,
-            skill_registry=self.skill_registry,
-        )
-        self.logger.info("Hamilton Agent created")
-
-        # Eureka Agent - 结果分析Agent
-        if 'eureka' not in agents_config:
-            raise ValueError("No 'eureka' agent configuration found")
-
-        eureka_config = agents_config['eureka']
-        eureka_llm_config = _get_agent_llm_config(eureka_config)
-        self.eureka_agent = self._create_agent(
-            name="eureka",
-            agent_config=eureka_config,
-            enable_tools=eureka_config.get('enable_tools', True),
-            llm_config_dict=eureka_llm_config,
-            tools=self.eureka_tools,
-            skill_registry=self.skill_registry,
-        )
-        self.logger.info("Eureka Agent created")
+            base_tools = getattr(self, "tools", None)
+            if base_tools is not None:
+                scoped = ToolRegistry()
+                for tool in base_tools.get_all_tools():
+                    if getattr(tool, "name", None) == "pysr_symbolic_regression":
+                        continue
+                    scoped.register(tool)
+                self.eureka_agent.tools = scoped
+        except Exception as e:
+            self.logger.warning(f"Failed to scope Eureka tools: {e}")
 
         self.logger.info("Hamilton playground setup complete")
 
@@ -280,6 +206,7 @@ class HamiltonPlayground(BasePlayground):
 
                 # 执行单轮
                 result = exp.run(task_description)
+                eureka_signal = result.get("eureka_signal") or {}
 
                 # 记录结果（确保可 JSON 序列化；完整轨迹已由 trajectories/trajectory.json 持久化）
                 round_record = {
@@ -287,17 +214,14 @@ class HamiltonPlayground(BasePlayground):
                     "hamilton_result": result.get("hamilton_result", ""),
                     "eureka_result": result.get("eureka_result", ""),
                     "insight": result.get("insight", ""),
+                    "eureka_signal": eureka_signal,
                     "hamilton": self._summarize_trajectory(result.get("hamilton_trajectory")),
                     "eureka": self._summarize_trajectory(result.get("eureka_trajectory")),
                 }
                 self.experiment_record["rounds"].append(round_record)
 
                 # 检查是否完成
-                satisfied_signal = "\n".join([
-                    str(round_record.get("eureka_result", "")),
-                    str(round_record.get("insight", "")),
-                ])
-                if self._is_satisfied(satisfied_signal):
+                if self._is_satisfied(eureka_signal):
                     self.logger.info("Found satisfactory result!")
                     break
 
@@ -361,7 +285,23 @@ class HamiltonPlayground(BasePlayground):
         if not insight_file.exists():
             with open(insight_file, 'w', encoding='utf-8') as f:
                 f.write("# Insights\n\n")
+                f.write("<!-- EVO_CURRENT_BEST_BEGIN -->\n")
+                f.write("## Current Best (auto-updated)\n")
+                f.write("- Round: 0\n")
+                f.write("- Equation: none\n")
+                f.write("- MSE: unknown\n")
+                f.write(f"- UpdatedAt: {datetime.now().isoformat()}\n")
+                f.write("<!-- EVO_CURRENT_BEST_END -->\n\n")
             self.logger.info(f"Created {insight_file}")
+
+        # skills/ - optional import convenience (avoid relying on namespace package semantics)
+        skills_dir = workspace / "skills"
+        eurekatool_dir = skills_dir / "eurekatool"
+        if eurekatool_dir.exists():
+            skills_dir.mkdir(parents=True, exist_ok=True)
+            skills_init = skills_dir / "__init__.py"
+            if not skills_init.exists():
+                skills_init.write_text("", encoding="utf-8")
 
     def _summarize_trajectory(self, trajectory) -> dict:
         """提取轨迹的轻量摘要（避免 experiment_record 保存巨大对象）。"""
@@ -375,10 +315,14 @@ class HamiltonPlayground(BasePlayground):
         except Exception:
             return {}
 
-    def _is_satisfied(self, result: str) -> bool:
-        """判断是否找到满意结果"""
-        keywords = ["完成", "成功", "satisfied", "success", "satisfactory", "completed"]
-        return any(kw.lower() in result.lower() for kw in keywords)
+    def _is_satisfied(self, signal) -> bool:
+        """判断是否找到满意结果（只接受结构化信号，避免关键字误触发）"""
+        try:
+            if isinstance(signal, dict):
+                return bool(signal.get("satisfied", False))
+        except Exception:
+            pass
+        return False
 
     def _save_experiment_record(self):
         """保存实验记录"""
