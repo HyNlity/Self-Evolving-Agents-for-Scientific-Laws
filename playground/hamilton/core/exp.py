@@ -18,6 +18,7 @@ import os
 import re
 from datetime import datetime
 from pathlib import Path
+from typing import Any
 
 from evomaster.core.exp import BaseExp
 from evomaster.agent import BaseAgent
@@ -77,11 +78,13 @@ class RoundExp(BaseExp):
 
         # ========== 步骤1: HamiltonAgent 执行分析 ==========
         self.logger.info(f"[Round {self.round_num}] Running HamiltonAgent...")
+        previous_handoff = self._load_previous_handoff()
+        hamilton_input_data = self._build_hamilton_input_data(previous_handoff)
         hamilton_task = TaskInstance(
             task_id=f"{task_id}_round{self.round_num}_hamilton",
             task_type="hamilton",
             description=task_description,
-            input_data={"round": self.round_num},
+            input_data=hamilton_input_data,
         )
 
         hamilton_trajectory = self.hamilton_agent.run(hamilton_task)
@@ -109,6 +112,12 @@ class RoundExp(BaseExp):
         # 解析 Eureka 的结构化信号，并基于其决策更新 insight.md 顶部 Current Best 区块
         eureka_signal = self._parse_eureka_signal(eureka_result, eureka_trajectory)
         self._maybe_update_current_best(eureka_signal)
+        eureka_validation = self._validate_eureka_round_output(eureka_signal)
+        eureka_artifacts = self._persist_eureka_artifacts(
+            eureka_signal=eureka_signal,
+            eureka_message=eureka_result,
+            validation=eureka_validation,
+        )
 
         # 提取 insight.md 内容
         insight_content = self._read_insight()
@@ -120,10 +129,307 @@ class RoundExp(BaseExp):
             "hamilton_result": hamilton_result,
             "eureka_result": eureka_result,
             "eureka_signal": eureka_signal,
+            "eureka_validation": eureka_validation,
+            "eureka_artifacts": eureka_artifacts,
             "insight": insight_content,
             "hamilton_trajectory": hamilton_trajectory,
             "eureka_trajectory": eureka_trajectory,
         }
+
+    # =========================
+    # Handoff (Eureka -> Hamilton)
+    # =========================
+
+    def _build_hamilton_input_data(self, previous_handoff: dict[str, Any]) -> dict[str, Any]:
+        """构建 Hamilton 输入上下文（含上一轮 Eureka handoff）。"""
+        handoff = previous_handoff if isinstance(previous_handoff, dict) else {}
+
+        exists = bool(handoff.get("exists", False))
+        source_round = handoff.get("source_round", max(0, self.round_num - 1))
+        try:
+            source_round_v = int(source_round)
+        except Exception:
+            source_round_v = max(0, self.round_num - 1)
+
+        best_eq = handoff.get("best_equation", "none")
+        if not isinstance(best_eq, str) or not best_eq.strip():
+            best_eq = "none"
+
+        best_mse = handoff.get("best_mse")
+        best_mse_str = "unknown"
+        try:
+            if best_mse is not None:
+                best_mse_str = str(float(best_mse))
+        except Exception:
+            best_mse_str = "unknown"
+
+        mse_source = handoff.get("mse_source", "unknown")
+        if not isinstance(mse_source, str) or not mse_source.strip():
+            mse_source = "unknown"
+
+        notes = handoff.get("notes", "")
+        if not isinstance(notes, str) or not notes.strip():
+            notes = "none"
+        else:
+            notes = notes.strip()
+
+        next_round_plan = handoff.get("next_round_plan", [])
+        if not isinstance(next_round_plan, list):
+            next_round_plan = []
+        next_round_plan = [x.strip() for x in next_round_plan if isinstance(x, str) and x.strip()]
+        next_round_plan_text = "none"
+        if next_round_plan:
+            next_round_plan_text = " ; ".join(next_round_plan)
+
+        return {
+            "round": self.round_num,
+            "previous_eureka_handoff_exists": "yes" if exists else "no",
+            "previous_eureka_source_round": source_round_v,
+            "previous_eureka_handoff_path": str(handoff.get("path", "none") or "none"),
+            "previous_eureka_best_equation": best_eq.strip(),
+            "previous_eureka_best_mse": best_mse_str,
+            "previous_eureka_mse_source": mse_source.strip(),
+            "previous_eureka_next_round_plan": next_round_plan_text,
+            "previous_eureka_notes": notes,
+            # 保留原始结构，供后续 prompt/tool 按需使用
+            "previous_eureka_handoff": handoff,
+        }
+
+    def _load_previous_handoff(self) -> dict[str, Any]:
+        """读取上一轮 Eureka handoff（缺失时返回默认空结构）。"""
+        default = {
+            "exists": False,
+            "source_round": max(0, self.round_num - 1),
+            "path": "none",
+            "best_equation": "none",
+            "best_mse": None,
+            "mse_source": "unknown",
+            "notes": "",
+            "next_round_plan": [],
+            "update_best": False,
+            "satisfied": False,
+        }
+
+        if not self.run_dir or self.round_num <= 1:
+            return default
+
+        prev_round = self.round_num - 1
+        handoff_path = self.run_dir / "history" / f"round{prev_round}" / "results" / self._EUREKA_HANDOFF_FILENAME
+        default["path"] = self._to_workspace_rel(handoff_path)
+
+        if not handoff_path.exists():
+            return default
+
+        try:
+            loaded = json.loads(handoff_path.read_text(encoding="utf-8"))
+        except Exception as e:
+            self.logger.warning("Failed to load previous Eureka handoff: %s", e)
+            return default
+
+        if not isinstance(loaded, dict):
+            return default
+
+        merged = dict(default)
+        merged.update(
+            {
+                "exists": True,
+                "source_round": loaded.get("round", prev_round),
+                "best_equation": loaded.get("best_equation", default["best_equation"]),
+                "best_mse": loaded.get("best_mse", default["best_mse"]),
+                "mse_source": loaded.get("mse_source", default["mse_source"]),
+                "notes": loaded.get("notes", default["notes"]),
+                "next_round_plan": loaded.get("next_round_plan", default["next_round_plan"]),
+                "update_best": loaded.get("update_best", default["update_best"]),
+                "satisfied": loaded.get("satisfied", default["satisfied"]),
+                "path": default["path"],
+            }
+        )
+        return merged
+
+    # =========================
+    # Eureka outputs: validate + persist
+    # =========================
+
+    def _validate_eureka_round_output(self, signal: dict[str, Any]) -> dict[str, Any]:
+        """软校验 Eureka 本轮输出，不抛异常阻断主流程。"""
+        checks: dict[str, bool] = {}
+        warnings: list[str] = []
+
+        if not self.run_dir:
+            return {
+                "round": self.round_num,
+                "validated_at": datetime.now().isoformat(),
+                "is_valid": False,
+                "checks": {"run_dir_available": False},
+                "warnings": ["run_dir is not set; skip Eureka artifact validation."],
+                "script_files": [],
+            }
+
+        insight_file = self.run_dir / "insight.md"
+        scripts_dir = self.run_dir / "history" / f"round{self.round_num}" / "scripts"
+        results_dir = self.run_dir / "history" / f"round{self.round_num}" / "results"
+
+        checks["run_dir_available"] = True
+        checks["insight_file_exists"] = insight_file.exists()
+        checks["scripts_dir_exists"] = scripts_dir.exists()
+        checks["results_dir_exists"] = results_dir.exists()
+        checks["signal_is_dict"] = isinstance(signal, dict)
+        checks["signal_has_satisfied"] = isinstance(signal, dict) and "satisfied" in signal
+        checks["signal_has_next_round_plan"] = isinstance(signal, dict) and isinstance(signal.get("next_round_plan", []), list)
+
+        insight_has_round_section = False
+        if insight_file.exists():
+            try:
+                text = insight_file.read_text(encoding="utf-8")
+                insight_has_round_section = f"## Round {self.round_num}" in text
+            except Exception:
+                insight_has_round_section = False
+        checks["insight_has_round_section"] = insight_has_round_section
+
+        script_files: list[str] = []
+        has_python_script = False
+        if scripts_dir.exists():
+            try:
+                script_files = sorted([p.name for p in scripts_dir.iterdir() if p.is_file()])
+                has_python_script = any(name.endswith(".py") for name in script_files)
+            except Exception:
+                script_files = []
+                has_python_script = False
+        checks["has_python_script"] = has_python_script
+
+        if not checks["insight_file_exists"]:
+            warnings.append("insight.md is missing.")
+        if not checks["insight_has_round_section"]:
+            warnings.append(f"insight.md does not contain section '## Round {self.round_num}'.")
+        if not checks["has_python_script"]:
+            warnings.append(f"No Python script found in history/round{self.round_num}/scripts.")
+        if not checks["signal_has_next_round_plan"]:
+            warnings.append("Eureka signal missing next_round_plan list.")
+
+        is_valid = checks["run_dir_available"] and checks["results_dir_exists"] and checks["signal_is_dict"]
+
+        return {
+            "round": self.round_num,
+            "validated_at": datetime.now().isoformat(),
+            "is_valid": is_valid,
+            "checks": checks,
+            "warnings": warnings,
+            "script_files": script_files,
+        }
+
+    def _persist_eureka_artifacts(
+        self,
+        eureka_signal: dict[str, Any],
+        eureka_message: str,
+        validation: dict[str, Any],
+    ) -> dict[str, Any]:
+        """持久化 Eureka 结构化产物与 handoff 文件。"""
+        info: dict[str, Any] = {
+            "round": self.round_num,
+            "persisted": False,
+        }
+        if not self.run_dir:
+            return info
+
+        results_dir = self.run_dir / "history" / f"round{self.round_num}" / "results"
+        results_dir.mkdir(parents=True, exist_ok=True)
+
+        signal_path = results_dir / f"eureka_round{self.round_num}_signal.json"
+        validation_path = results_dir / f"eureka_round{self.round_num}_validation.json"
+        report_index_path = results_dir / f"eureka_round{self.round_num}_report_index.json"
+        handoff_path = results_dir / self._EUREKA_HANDOFF_FILENAME
+
+        signal_payload = {
+            "round": self.round_num,
+            "saved_at": datetime.now().isoformat(),
+            "signal": eureka_signal if isinstance(eureka_signal, dict) else {},
+            "finish_message_excerpt": (eureka_message or "")[:4000],
+        }
+        handoff_payload = self._build_eureka_handoff_payload(eureka_signal, validation)
+        report_index = {
+            "round": self.round_num,
+            "saved_at": datetime.now().isoformat(),
+            "insight_file": "insight.md",
+            "scripts_dir": self._to_workspace_rel(self.run_dir / "history" / f"round{self.round_num}" / "scripts"),
+            "results_dir": self._to_workspace_rel(results_dir),
+            "signal_file": self._to_workspace_rel(signal_path),
+            "validation_file": self._to_workspace_rel(validation_path),
+            "handoff_file": self._to_workspace_rel(handoff_path),
+            "script_files": validation.get("script_files", []) if isinstance(validation, dict) else [],
+        }
+
+        try:
+            signal_path.write_text(json.dumps(signal_payload, ensure_ascii=False, indent=2), encoding="utf-8")
+            validation_path.write_text(json.dumps(validation, ensure_ascii=False, indent=2), encoding="utf-8")
+            handoff_path.write_text(json.dumps(handoff_payload, ensure_ascii=False, indent=2), encoding="utf-8")
+            report_index_path.write_text(json.dumps(report_index, ensure_ascii=False, indent=2), encoding="utf-8")
+        except Exception as e:
+            self.logger.warning("Failed to persist Eureka artifacts for round %s: %s", self.round_num, e)
+            info["error"] = str(e)
+            return info
+
+        info.update(
+            {
+                "persisted": True,
+                "signal_file": self._to_workspace_rel(signal_path),
+                "validation_file": self._to_workspace_rel(validation_path),
+                "handoff_file": self._to_workspace_rel(handoff_path),
+                "report_index_file": self._to_workspace_rel(report_index_path),
+            }
+        )
+        return info
+
+    def _build_eureka_handoff_payload(self, signal: dict[str, Any], validation: dict[str, Any]) -> dict[str, Any]:
+        """构建供下一轮 Hamilton 使用的 handoff 结构。"""
+        raw = signal if isinstance(signal, dict) else {}
+
+        best_equation = raw.get("best_equation", "")
+        if not isinstance(best_equation, str) or not best_equation.strip():
+            best_equation = "none"
+
+        best_mse = raw.get("best_mse")
+        try:
+            best_mse = float(best_mse) if best_mse is not None else None
+        except Exception:
+            best_mse = None
+
+        next_round_plan = raw.get("next_round_plan", [])
+        if not isinstance(next_round_plan, list):
+            next_round_plan = []
+        next_round_plan = [x.strip() for x in next_round_plan if isinstance(x, str) and x.strip()]
+
+        notes = raw.get("notes", "")
+        if not isinstance(notes, str):
+            notes = ""
+
+        mse_source = raw.get("mse_source", "unknown")
+        if not isinstance(mse_source, str) or not mse_source.strip():
+            mse_source = "unknown"
+
+        return {
+            "round": self.round_num,
+            "generated_at": datetime.now().isoformat(),
+            "best_equation": best_equation.strip(),
+            "best_mse": best_mse,
+            "mse_source": mse_source.strip(),
+            "notes": notes.strip(),
+            "next_round_plan": next_round_plan,
+            "update_best": bool(raw.get("update_best", False)),
+            "satisfied": bool(raw.get("satisfied", False)),
+            "validation": {
+                "is_valid": bool(validation.get("is_valid", False)) if isinstance(validation, dict) else False,
+                "warnings": validation.get("warnings", []) if isinstance(validation, dict) else [],
+            },
+        }
+
+    def _to_workspace_rel(self, path: Path) -> str:
+        """将路径转为相对 workspace 的可读路径。"""
+        if not self.run_dir:
+            return str(path)
+        try:
+            return str(path.relative_to(self.run_dir))
+        except Exception:
+            return str(path)
 
     def _ensure_round_dirs(self):
         """确保本轮目录存在"""
@@ -208,6 +514,7 @@ class RoundExp(BaseExp):
     _EUREKA_SIGNAL_END = "===EVO_EUREKA_SIGNAL_END==="
     _CURRENT_BEST_BEGIN = "<!-- EVO_CURRENT_BEST_BEGIN -->"
     _CURRENT_BEST_END = "<!-- EVO_CURRENT_BEST_END -->"
+    _EUREKA_HANDOFF_FILENAME = "eureka_handoff.json"
 
     def _parse_eureka_signal(self, eureka_message: str, trajectory) -> dict:
         """Parse machine-readable Eureka signal from finish.message.
