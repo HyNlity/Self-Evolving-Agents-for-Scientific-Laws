@@ -166,6 +166,9 @@ local_model/
 .pids
 runs/
 /.env
+.venv/
+.julia-bin/
+.julia-depot/
 
 # macOS
 .DS_Store
