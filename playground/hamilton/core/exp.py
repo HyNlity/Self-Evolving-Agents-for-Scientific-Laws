@@ -71,7 +71,7 @@ class RoundExp(BaseExp):
         os.environ["HAMILTON_ROUND"] = str(self.round_num)
 
         # 初始化本轮的文件结构
-        self._init_round_files()
+        self._init_round_files(task_description=task_description)
 
         # 确保本轮目录存在
         self._ensure_round_dirs()
@@ -443,7 +443,7 @@ class RoundExp(BaseExp):
         scripts_dir.mkdir(parents=True, exist_ok=True)
         results_dir.mkdir(parents=True, exist_ok=True)
 
-    def _init_round_files(self):
+    def _init_round_files(self, task_description: str = ""):
         """初始化本轮的文件结构
 
         - 在 analysis.md 中添加 ## Round N 头部
@@ -484,7 +484,11 @@ class RoundExp(BaseExp):
                 experiment_data = None
 
         if not isinstance(experiment_data, dict):
-            experiment_data = {"task": "", "rounds": {}}
+            experiment_data = {"task": task_description or "", "rounds": {}}
+
+        existing_task = experiment_data.get("task")
+        if (not isinstance(existing_task, str) or not existing_task.strip()) and task_description:
+            experiment_data["task"] = task_description
 
         if "rounds" not in experiment_data or not isinstance(experiment_data.get("rounds"), dict):
             experiment_data["rounds"] = {}
@@ -524,22 +528,43 @@ class RoundExp(BaseExp):
           {...}
           ===EVO_EUREKA_SIGNAL_END===
         """
-        text = eureka_message or ""
-        signal = self._extract_signal_from_text(text)
-        if not signal:
-            # Fallback: try to recover finish.message from trajectory (in case extraction changed)
-            recovered = self._extract_finish_message_from_trajectory(trajectory)
-            if recovered and recovered != text:
-                signal = self._extract_signal_from_text(recovered)
+        signal: dict[str, Any] = {}
+        candidates: list[str] = []
+
+        def _append_candidate(text: str) -> None:
+            if isinstance(text, str) and text and text not in candidates:
+                candidates.append(text)
+
+        # 候选1：当前抽取到的文本
+        _append_candidate(eureka_message or "")
+        # 候选2：直接从 trajectory 提取 finish.message（兼容不同提取路径）
+        _append_candidate(self._extract_finish_message_from_trajectory(trajectory))
+
+        # 候选扩展：当文本本身是 {"message": "..."} 包装时，提取 message 再解析
+        expanded_candidates: list[str] = []
+        for candidate in candidates:
+            _append = expanded_candidates.append
+            if candidate not in expanded_candidates:
+                _append(candidate)
+            wrapped_message = self._extract_message_from_json_wrapper(candidate)
+            if wrapped_message and wrapped_message not in expanded_candidates:
+                _append(wrapped_message)
+
+        for candidate in expanded_candidates:
+            signal = self._extract_signal_from_text(candidate)
+            if isinstance(signal, dict) and signal:
+                break
 
         if not isinstance(signal, dict):
             signal = {}
 
         # Lenient fallback: accept a single-line SATISFIED flag even without JSON block.
         if "satisfied" not in signal:
-            satisfied = self._parse_satisfied_flag(text) or self._parse_satisfied_flag(self._extract_finish_message_from_trajectory(trajectory))
-            if satisfied is not None:
-                signal["satisfied"] = satisfied
+            for candidate in expanded_candidates:
+                satisfied = self._parse_satisfied_flag(candidate)
+                if satisfied is not None:
+                    signal["satisfied"] = satisfied
+                    break
 
         return self._normalize_eureka_signal(signal)
 
@@ -552,10 +577,62 @@ class RoundExp(BaseExp):
             return {}
         try:
             payload = text.split(begin, 1)[1].split(end, 1)[0].strip()
-            data = json.loads(payload) if payload else {}
-            return data if isinstance(data, dict) else {}
+            return self._json_loads_dict_lenient(payload)
         except Exception:
             return {}
+
+    def _extract_message_from_json_wrapper(self, text: str) -> str:
+        """解析类似 {"message": "..."} 的包装文本，提取 message 字段。"""
+        parsed = self._json_loads_lenient(text)
+        if isinstance(parsed, dict):
+            for key in ("message", "final", "answer", "output"):
+                value = parsed.get(key)
+                if isinstance(value, str) and value.strip():
+                    return value
+            return ""
+        if isinstance(parsed, str):
+            return parsed
+        return ""
+
+    def _json_loads_lenient(self, text: str):
+        if not isinstance(text, str):
+            return None
+        raw = text.strip()
+        if not raw:
+            return None
+
+        candidates = [raw]
+        # 兼容出现 \" 和 \n 的双重转义块
+        if "\\\"" in raw or "\\n" in raw or "\\t" in raw:
+            # 先做最小替换，避免 unicode_escape 破坏非 ASCII 文本
+            replaced = raw.replace("\\n", "\n").replace("\\t", "\t").replace('\\"', '"').strip()
+            if replaced and replaced not in candidates:
+                candidates.append(replaced)
+
+            try:
+                decoded = bytes(raw, "utf-8").decode("unicode_escape").strip()
+                if decoded and decoded not in candidates:
+                    candidates.append(decoded)
+            except Exception:
+                pass
+
+        for candidate in candidates:
+            try:
+                return json.loads(candidate)
+            except Exception:
+                continue
+        return None
+
+    def _json_loads_dict_lenient(self, text: str) -> dict:
+        parsed = self._json_loads_lenient(text)
+        if isinstance(parsed, dict):
+            return parsed
+        # 少数情况下第一次解析得到字符串，第二次可得到 dict
+        if isinstance(parsed, str):
+            nested = self._json_loads_lenient(parsed)
+            if isinstance(nested, dict):
+                return nested
+        return {}
 
     def _parse_satisfied_flag(self, text: str) -> bool | None:
         if not isinstance(text, str) or not text:
@@ -594,7 +671,12 @@ class RoundExp(BaseExp):
                     return str(parsed)
         except Exception:
             return ""
-        return ""
+        # 兜底：若没有 finish tool-call，尝试提取最后 assistant 文本
+        try:
+            fallback = super()._extract_agent_response(trajectory)
+            return fallback if isinstance(fallback, str) else ""
+        except Exception:
+            return ""
 
     def _normalize_eureka_signal(self, raw: dict) -> dict:
         def _as_bool(v) -> bool:
@@ -670,6 +752,26 @@ class RoundExp(BaseExp):
         if not isinstance(signal, dict) or not signal.get("update_best", False):
             return
 
+        # 硬门槛：只有当轮存在有效 PySR 结果时，才允许更新 Current Best。
+        round_ok, round_reason = self._has_effective_round_results(self.round_num)
+        if not round_ok:
+            self.logger.warning(
+                "Skip Current Best update at round %s: %s",
+                self.round_num,
+                round_reason,
+            )
+            signal["update_best"] = False
+            gate_note = (
+                f"update_best rejected: no validated PySR results for round {self.round_num} "
+                f"({round_reason})."
+            )
+            existing_notes = signal.get("notes", "")
+            if isinstance(existing_notes, str) and existing_notes.strip():
+                signal["notes"] = f"{existing_notes.strip()} | {gate_note}"
+            else:
+                signal["notes"] = gate_note
+            return
+
         equation = signal.get("best_equation")
         if not isinstance(equation, str) or not equation.strip() or equation.strip().lower() == "none":
             return
@@ -689,6 +791,54 @@ class RoundExp(BaseExp):
 
         new_text = self._replace_block(text, self._CURRENT_BEST_BEGIN, self._CURRENT_BEST_END, block)
         insight_file.write_text(new_text, encoding="utf-8")
+
+    def _has_effective_round_results(self, round_num: int) -> tuple[bool, str]:
+        """检查给定轮次在 experiment.json 中是否存在有效 PySR 结果。"""
+        if not self.run_dir:
+            return False, "run_dir_not_set"
+
+        experiment_file = self.run_dir / "experiment.json"
+        if not experiment_file.exists():
+            return False, "experiment_json_missing"
+
+        try:
+            payload = json.loads(experiment_file.read_text(encoding="utf-8"))
+        except Exception:
+            return False, "experiment_json_invalid"
+
+        rounds = payload.get("rounds", {})
+        if not isinstance(rounds, dict):
+            return False, "rounds_not_dict"
+
+        round_data = rounds.get(str(round_num))
+        if not isinstance(round_data, dict):
+            return False, "round_record_missing"
+
+        try:
+            raw_exit_code = round_data.get("exit_code", 1)
+            if raw_exit_code is None:
+                exit_code = 1
+            else:
+                exit_code = int(raw_exit_code)
+        except Exception:
+            exit_code = 1
+        if exit_code != 0:
+            return False, f"round_exit_code_{exit_code}"
+
+        results = round_data.get("results", [])
+        if not isinstance(results, list) or not results:
+            return False, "round_results_empty"
+
+        has_equation = any(
+            isinstance(item, dict)
+            and isinstance(item.get("equation"), str)
+            and item.get("equation", "").strip()
+            for item in results
+        )
+        if not has_equation:
+            return False, "round_results_no_equation"
+
+        return True, "ok"
 
     def _ensure_current_best_block(self, insight_file: Path) -> None:
         """Ensure insight.md has a Current Best block delimited by markers."""

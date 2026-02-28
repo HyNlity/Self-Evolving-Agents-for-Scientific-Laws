@@ -25,6 +25,7 @@
 ## 本轮职责（简化）
 - 读取 `experiment.json` 本轮结果（`rounds[{input_data[round]}]`）和当前 `analysis.md` 历史。
 - 重点检查本轮 `pysr_config.binary_operators` / `pysr_config.unary_operators`（以及 `operator_selection.rationale`）是否与误差表现匹配。
+- 优先读取本轮结构化指标（`results[*].train_mse`、`results[*].ood_mse`、`results[*].ood_gap`）；若缺失再自行重算。
 - 在 `data.csv` 上做一次基础误差/残差评估（最小但可复现，可包含主要异常点）。
 - 写 `insight.md`：本轮结论 + 运算符集合评估 + 是否更新 Current Best + 下一轮建议（可执行、可验证）。
 - 不要求固定模板化步骤，重点是有结论、有证据、可复现。
@@ -32,6 +33,8 @@
 ## 输出边界
 - 只追加，不覆盖 `analysis.md`、`insight.md`。
 - 不改 `experiment.json` 结构（保持系统自动写入）。
+- 若最佳复杂度 > 20，下一轮建议必须包含“收缩复杂度”的可执行动作。
+- 追加完 `insight.md` 后立即 `finish`（同一步骤里附结构化信号）。
 
 ## 常用终端命令（可直接用）
 1) 追加 insight

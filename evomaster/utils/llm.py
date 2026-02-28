@@ -5,7 +5,9 @@
 
 from __future__ import annotations
 
+import json
 import logging
+import re
 import sys
 import time
 from abc import ABC, abstractmethod
@@ -140,6 +142,19 @@ class BaseLLM(ABC):
 
         # 调用 API（带重试）
         response = self._call_with_retry(messages, tools, **kwargs)
+        # 向后兼容：部分 OpenAI-compatible 网关会把工具调用以文本 JSON 返回，
+        # 导致 message.tool_calls 为空。此处尝试从 content 中恢复工具调用。
+        if (not response.tool_calls) and response.content and dialog.tools:
+            recovered = self._recover_tool_calls_from_content(
+                content=response.content,
+                available_tools=dialog.tools,
+            )
+            if recovered:
+                response.tool_calls = recovered
+                self.logger.warning(
+                    "Recovered %d tool call(s) from assistant text content (compat mode).",
+                    len(recovered),
+                )
 
         # 记录响应（如果启用日志）
         if self.log_to_file:
@@ -147,6 +162,218 @@ class BaseLLM(ABC):
 
         # 转换为 AssistantMessage
         return response.to_assistant_message()
+
+    def _recover_tool_calls_from_content(self, content: str, available_tools: list[Any]) -> list[ToolCall] | None:
+        """从 assistant 纯文本中恢复工具调用（兼容非标准网关行为）。
+
+        仅识别如下结构：
+        {"command": "<tool_name>", "params": {...}}
+        """
+        if not isinstance(content, str) or not content.strip():
+            return None
+
+        tool_names = set()
+        for spec in available_tools:
+            try:
+                name = spec.function.name
+            except Exception:
+                name = None
+            if isinstance(name, str) and name.strip():
+                tool_names.add(name.strip())
+
+        if not tool_names:
+            return None
+
+        candidates = self._extract_json_objects(content)
+        if not candidates:
+            return None
+
+        recovered: list[ToolCall] = []
+        dedup: set[tuple[str, str]] = set()
+        bash_tool_name = "execute_bash" if "execute_bash" in tool_names else None
+
+        for obj in candidates:
+            if not isinstance(obj, dict):
+                continue
+
+            tool_name: str | None = None
+            tool_params: dict[str, Any] | None = None
+
+            # 兼容格式1：{"name": "finish", "arguments": {...}}
+            name_value = obj.get("name")
+            if isinstance(name_value, str) and name_value.strip() in tool_names:
+                tool_name = name_value.strip()
+                tool_params = self._coerce_tool_params(obj.get("arguments"))
+                if tool_params is None:
+                    tool_params = {}
+
+            # 兼容格式2：{"command": "<tool_name>", "params": {...}}
+            if tool_name is None:
+                command = obj.get("command")
+                if isinstance(command, str):
+                    command = command.strip()
+                    if command in tool_names:
+                        tool_name = command
+                        tool_params = self._coerce_tool_params(
+                            obj.get("params", obj.get("arguments"))
+                        )
+                        if tool_params is None:
+                            # finish 常见兼容：{"command":"finish","message":"...","task_completed":"true"}
+                            if tool_name == "finish":
+                                raw = {k: v for k, v in obj.items() if k != "command"}
+                                tool_params = raw if isinstance(raw, dict) else {}
+                            else:
+                                tool_params = {}
+
+            # 兼容格式3（旧 Eureka）：{"command":"cat -n experiment.json"} => execute_bash
+            if tool_name is None and bash_tool_name:
+                shell_cmd = obj.get("command")
+                if isinstance(shell_cmd, str):
+                    shell_cmd = shell_cmd.strip()
+                    if shell_cmd and self._looks_like_shell_command(shell_cmd):
+                        tool_name = bash_tool_name
+                        tool_params = {"command": shell_cmd}
+
+            # 兼容格式4：直接返回 finish payload，如 {"message":"...", "task_completed":"true"}
+            if tool_name is None and "finish" in tool_names:
+                finish_message = obj.get("message")
+                if not isinstance(finish_message, str) or not finish_message.strip():
+                    finish_message = obj.get("final") or obj.get("answer") or obj.get("output")
+                if isinstance(finish_message, str) and finish_message.strip():
+                    tc = obj.get("task_completed", obj.get("completed"))
+                    if isinstance(tc, bool):
+                        task_completed = "true" if tc else "false"
+                    elif isinstance(tc, (int, float)):
+                        task_completed = "true" if tc != 0 else "false"
+                    elif isinstance(tc, str) and tc.strip():
+                        task_completed = tc.strip().lower()
+                        if task_completed not in {"true", "false", "partial"}:
+                            task_completed = "partial"
+                    else:
+                        # 没有明确完成状态时，保守标记为 partial，避免误报完成。
+                        task_completed = "partial"
+                    tool_name = "finish"
+                    tool_params = {
+                        "message": finish_message.strip(),
+                        "task_completed": task_completed,
+                    }
+
+            if tool_name is None or tool_params is None:
+                continue
+
+            params_json = json.dumps(tool_params, ensure_ascii=False)
+            dedup_key = (tool_name, params_json)
+            if dedup_key in dedup:
+                continue
+            dedup.add(dedup_key)
+
+            recovered.append(
+                ToolCall(
+                    id=f"recovered-{len(recovered) + 1}",
+                    type="function",
+                    function=FunctionCall(
+                        name=tool_name,
+                        arguments=params_json,
+                    ),
+                )
+            )
+
+        return recovered or None
+
+    @staticmethod
+    def _coerce_tool_params(raw: Any) -> dict[str, Any] | None:
+        """将工具参数规整为字典。"""
+        if raw is None:
+            return {}
+        if isinstance(raw, dict):
+            return raw
+        if isinstance(raw, str):
+            text = raw.strip()
+            if not text:
+                return {}
+            try:
+                parsed = json.loads(text)
+            except Exception:
+                return None
+            return parsed if isinstance(parsed, dict) else None
+        return None
+
+    @staticmethod
+    def _looks_like_shell_command(command: str) -> bool:
+        """启发式判断字符串是否更像 shell 命令（而不是工具名）。"""
+        if not command:
+            return False
+        text = command.strip()
+        if not text:
+            return False
+        if any(ch in text for ch in ("|", "&", ";", ">", "<", "$", "(", ")", "`")):
+            return True
+        if text.startswith(("./", "../", "/", "~")):
+            return True
+        parts = text.split()
+        if len(parts) >= 2:
+            return True
+        head = parts[0].lower() if parts else ""
+        common = {
+            "ls", "cat", "head", "tail", "grep", "find", "awk", "sed",
+            "python", "python3", "bash", "sh", "echo", "mkdir", "cp",
+            "mv", "rm", "pwd", "wc", "touch", "chmod", "chown",
+        }
+        return head in common
+
+    def _extract_json_objects(self, text: str) -> list[Any]:
+        """从文本中尽可能提取 JSON 对象/数组。"""
+        payloads: list[Any] = []
+
+        # 1) 先尝试整体解析
+        parsed = self._safe_json_loads(text.strip())
+        if parsed is not None:
+            payloads.extend(self._flatten_json_payload(parsed))
+
+        # 2) 再尝试 fenced code blocks（```json ...```）
+        for block in re.findall(r"```(?:json)?\s*(.*?)```", text, flags=re.IGNORECASE | re.DOTALL):
+            parsed_block = self._safe_json_loads(block.strip())
+            if parsed_block is not None:
+                payloads.extend(self._flatten_json_payload(parsed_block))
+
+        # 3) 最后尝试从原文中流式扫描多个 JSON 对象
+        payloads.extend(self._scan_json_objects(text))
+        return payloads
+
+    @staticmethod
+    def _safe_json_loads(text: str) -> Any:
+        if not text:
+            return None
+        try:
+            return json.loads(text)
+        except Exception:
+            return None
+
+    @staticmethod
+    def _flatten_json_payload(payload: Any) -> list[Any]:
+        if isinstance(payload, list):
+            return payload
+        return [payload]
+
+    @staticmethod
+    def _scan_json_objects(text: str) -> list[Any]:
+        decoder = json.JSONDecoder()
+        items: list[Any] = []
+        idx = 0
+        n = len(text)
+        while idx < n:
+            ch = text[idx]
+            if ch not in "{[":
+                idx += 1
+                continue
+            try:
+                obj, end = decoder.raw_decode(text, idx)
+            except Exception:
+                idx += 1
+                continue
+            items.extend(BaseLLM._flatten_json_payload(obj))
+            idx = max(end, idx + 1)
+        return items
 
     def _log_request(self, messages: list[dict[str, Any]], tools: list[dict[str, Any]] | None = None) -> None:
         """记录 LLM 请求到日志

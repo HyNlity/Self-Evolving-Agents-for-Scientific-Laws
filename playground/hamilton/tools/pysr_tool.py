@@ -8,12 +8,20 @@ PySR Tool - 符号回归工具
 from __future__ import annotations
 
 import json
+import math
 import os
+import re
 import shlex
+import sys
 from typing import Any, ClassVar
 from pydantic import BaseModel, Field
 
 from evomaster.agent.tools.base import BaseTool, BaseToolParams
+
+try:
+    from evomaster.skills.eurekatool import tool as eureka_tool
+except Exception:  # pragma: no cover - optional dependency path fallback
+    eureka_tool = None
 
 
 class ExpressionSpec(BaseModel):
@@ -70,6 +78,11 @@ class PySRToolParams(BaseToolParams):
         description="最大评估次数"
     )
 
+    max_complexity: int = Field(
+        default=20,
+        description="表达式复杂度上限（优先控制在20以内，防止过拟合）"
+    )
+
     # ===== 运算符 =====
 
     binary_operators: list[str] = Field(
@@ -91,6 +104,12 @@ class PySRTool(BaseTool):
 
     name: ClassVar[str] = "pysr_symbolic_regression"
     params_class: ClassVar[type[BaseToolParams]] = PySRToolParams
+
+    _PYTHON_EXEC_ENV_KEYS: ClassVar[tuple[str, ...]] = (
+        "HAMILTON_PYTHON_EXECUTABLE",
+        "EVOMASTER_PYTHON_EXECUTABLE",
+        "PYTHON_EXECUTABLE",
+    )
 
     def execute(self, session, args_json: str) -> tuple[str, dict[str, Any]]:
         """执行PySR符号回归"""
@@ -131,8 +150,9 @@ class PySRTool(BaseTool):
         session.write_file(script_abs_path, code, encoding="utf-8")
 
         # 执行脚本
+        python_exec = self._resolve_python_executable()
         result = session.exec_bash(
-            f"cd {workspace_q} && python3 {shlex.quote(script_rel_path)}",
+            f"cd {workspace_q} && {shlex.quote(python_exec)} {shlex.quote(script_rel_path)}",
         )
 
         stdout = result.get("stdout", "") or ""
@@ -161,9 +181,50 @@ class PySRTool(BaseTool):
             "recorded": True,
             "round": round_num,
             "script": script_rel_path,
+            "python_executable": python_exec,
             "binary_operators": params.binary_operators,
             "unary_operators": params.unary_operators,
         }
+
+    def _resolve_python_executable(self) -> str:
+        """Resolve Python executable for running generated PySR scripts.
+
+        Priority:
+        1) Explicit env overrides
+        2) Current interpreter (sys.executable)
+        3) repo-local .venv/bin/python (best-effort)
+        4) python3 fallback
+        """
+        candidates: list[str] = []
+
+        for key in self._PYTHON_EXEC_ENV_KEYS:
+            val = os.environ.get(key, "")
+            if isinstance(val, str):
+                val = val.strip()
+            if val:
+                candidates.append(val)
+
+        if getattr(sys, "executable", None):
+            candidates.append(sys.executable)
+
+        # Best-effort: <repo_root>/.venv/bin/python
+        repo_python = os.path.abspath(
+            os.path.join(os.path.dirname(__file__), "..", "..", "..", ".venv", "bin", "python")
+        )
+        candidates.append(repo_python)
+
+        for candidate in candidates:
+            if not isinstance(candidate, str) or not candidate.strip():
+                continue
+            path = candidate.strip()
+            if os.path.isabs(path):
+                if os.path.exists(path) and os.access(path, os.X_OK):
+                    return path
+            else:
+                # Keep relative/bare executable names as-is (resolved by shell PATH)
+                return path
+
+        return "python3"
 
     def _normalize_operator_list(self, operators: list[str]) -> list[str]:
         """清洗运算符列表：去空格、去空值、去重（保序）。"""
@@ -214,9 +275,21 @@ class PySRTool(BaseTool):
             normalized_results.append({
                 "rank": item.get("rank"),
                 "equation": equation,
+                "equation_eval": item.get("equation_eval"),
                 "mse": item.get("mse", item.get("loss")),
                 "complexity": item.get("complexity"),
+                "train_mse": item.get("train_mse"),
+                "ood_mse": item.get("ood_mse"),
+                "ood_gap": item.get("ood_gap"),
+                "mse_source": item.get("mse_source", "reported"),
             })
+
+        evaluation = self._evaluate_results_against_datasets(
+            workspace=workspace,
+            y_col=params.y,
+            variable_names=params.expression_spec.variable_names,
+            results=normalized_results,
+        )
 
         round_record = {
             "round": round_num,
@@ -226,6 +299,7 @@ class PySRTool(BaseTool):
                 "expression_spec": params.expression_spec.model_dump(),
                 "niterations": params.niterations,
                 "max_evals": params.max_evals,
+                "max_complexity": params.max_complexity,
                 "binary_operators": params.binary_operators,
                 "unary_operators": params.unary_operators,
             },
@@ -236,6 +310,7 @@ class PySRTool(BaseTool):
                 "rationale": params.operator_rationale,
             },
             "results": normalized_results,
+            "evaluation": evaluation,
             "exit_code": exit_code,
         }
 
@@ -342,11 +417,13 @@ import pandas as pd
 import numpy as np
 import json
 import sys
+import traceback
 
 try:
-    from pysr import pysr
-except ImportError:
-    print("Error: PySR not installed. Run: pip install pysr")
+    from pysr import PySRRegressor, TemplateExpressionSpec
+except Exception as e:
+    print("Error: failed to import pysr:", repr(e))
+    traceback.print_exc()
     sys.exit(1)
 
 # 加载数据
@@ -354,7 +431,7 @@ df = pd.read_csv('data.csv')
 
 # 提取特征和目标
 var_names = VARIABLE_NAMES_PLACEHOLDER
-X = df[var_names].values
+X = df[var_names]
 y_col = Y_COL_PLACEHOLDER
 y = df[y_col].values
 
@@ -362,42 +439,75 @@ y = df[y_col].values
 expressions = EXPRESSIONS_PLACEHOLDER
 combine = COMBINE_PLACEHOLDER
 
-# PySR调用
-print("Running PySR with niterations=NITERATIONS_PLACEHOLDER, max_evals=MAX_EVALS_PLACEHOLDER")
-print("Binary operators: " + BINARY_OPS_PLACEHOLDER)
-print("Unary operators: " + UNARY_OPS_PLACEHOLDER)
-print("Expression template: " + COMBINE_PLACEHOLDER)
+# 构建 expression_spec（新 API）
+try:
+    expression_spec = TemplateExpressionSpec(
+        combine=combine,
+        expressions=expressions,
+        variable_names=var_names,
+    )
+except TypeError:
+    # 兼容旧构造签名
+    expression_spec = TemplateExpressionSpec(expressions, combine)
+
+# PySR 调用
+print("Running PySR with niterations=NITERATIONS_PLACEHOLDER, max_evals=MAX_EVALS_PLACEHOLDER, max_complexity=MAX_COMPLEXITY_PLACEHOLDER")
+print("Binary operators:", BINARY_OPS_PLACEHOLDER)
+print("Unary operators:", UNARY_OPS_PLACEHOLDER)
+print("Expression template:", COMBINE_PLACEHOLDER)
 print("-" * 50)
 
-equations = pysr(
-    X,
-    y,
+model_kwargs = dict(
     niterations=NITERATIONS_PLACEHOLDER,
     max_evals=MAX_EVALS_PLACEHOLDER,
+    maxsize=MAX_COMPLEXITY_PLACEHOLDER,
     binary_operators=BINARY_OPS_PLACEHOLDER,
     unary_operators=UNARY_OPS_PLACEHOLDER,
-    expression_selection=expressions,
-    combine=combine,
-    verbose=True,
-    n_jobs=1,
+    expression_spec=expression_spec,
+    verbosity=1,
+    progress=True,
     populations=20,
 )
 
+try:
+    model = PySRRegressor(**model_kwargs)
+except TypeError as e:
+    # 兼容某些版本不支持 maxsize
+    if "maxsize" in str(e):
+        model_kwargs.pop("maxsize", None)
+        model = PySRRegressor(**model_kwargs)
+    else:
+        raise
+
+model.fit(X, y)
+
 # 输出最优表达式
 print("=" * 50)
-print("PySR Results (Top 1):")
+print("PySR Results (Top 5):")
 print("=" * 50)
-results = []
-try:
-    selected = equations.select_k(1)
-except Exception:
-    selected = []
 
-for i, eq in enumerate(selected):
-    expr = getattr(eq, "expr", None)
-    loss = getattr(eq, "loss", None)
-    complexity = getattr(eq, "complexity", None)
-    expr_s = str(expr) if expr is not None else str(eq)
+eq_df = getattr(model, "equations_", None)
+if eq_df is None:
+    eq_df = pd.DataFrame()
+
+if len(eq_df) == 0:
+    print("No equations generated.")
+    print("===EVO_PYSR_RESULTS_JSON_BEGIN===")
+    print("[]")
+    print("===EVO_PYSR_RESULTS_JSON_END===")
+    sys.exit(0)
+
+# 以 loss 升序选取 top-k
+if "loss" in eq_df.columns:
+    top_df = eq_df.sort_values("loss", ascending=True).head(5)
+else:
+    top_df = eq_df.head(5)
+
+results = []
+for i, (_, row) in enumerate(top_df.iterrows()):
+    expr_s = str(row.get("equation", ""))
+    loss = row.get("loss")
+    complexity = row.get("complexity")
     try:
         loss_v = float(loss) if loss is not None else None
     except Exception:
@@ -431,7 +541,145 @@ print("===EVO_PYSR_RESULTS_JSON_END===")
         code = code.replace("COMBINE_PLACEHOLDER", json.dumps(combine))
         code = code.replace("NITERATIONS_PLACEHOLDER", str(params.niterations))
         code = code.replace("MAX_EVALS_PLACEHOLDER", str(params.max_evals))
+        code = code.replace("MAX_COMPLEXITY_PLACEHOLDER", str(params.max_complexity))
         code = code.replace("BINARY_OPS_PLACEHOLDER", binary_ops_json)
         code = code.replace("UNARY_OPS_PLACEHOLDER", unary_ops_json)
 
         return code
+
+    def _evaluate_results_against_datasets(
+        self,
+        workspace: str,
+        y_col: str,
+        variable_names: list[str],
+        results: list[dict[str, Any]],
+    ) -> dict[str, Any]:
+        """重算 train/OOD MSE，并把结构化指标写回每条结果。"""
+        evaluation: dict[str, Any] = {
+            "enabled": False,
+            "train_available": False,
+            "ood_available": False,
+            "best_rank": None,
+            "best_train_mse": None,
+            "best_ood_mse": None,
+            "best_ood_gap": None,
+            "error": None,
+        }
+        if not results:
+            return evaluation
+        if eureka_tool is None:
+            evaluation["error"] = "eurekatool_not_available"
+            return evaluation
+
+        train_file = os.path.join(workspace, "data.csv")
+        ood_file = os.path.join(workspace, "data_ood.csv")
+        columns = list(dict.fromkeys(list(variable_names or []) + [y_col]))
+
+        try:
+            train_rows = eureka_tool.read_csv_rows(train_file, columns=columns)
+        except Exception as e:
+            evaluation["error"] = f"train_read_failed:{e}"
+            return evaluation
+
+        ood_rows = []
+        if os.path.exists(ood_file):
+            try:
+                ood_rows = eureka_tool.read_csv_rows(ood_file, columns=columns)
+            except Exception:
+                ood_rows = []
+
+        y_train = [row.get(y_col, float("nan")) for row in train_rows]
+        y_ood = [row.get(y_col, float("nan")) for row in ood_rows]
+
+        evaluation["enabled"] = True
+        evaluation["train_available"] = bool(train_rows)
+        evaluation["ood_available"] = bool(ood_rows)
+
+        for item in results:
+            if not isinstance(item, dict):
+                continue
+            equation = item.get("equation")
+            if not isinstance(equation, str) or not equation.strip():
+                continue
+
+            eq_eval = self._equation_to_eval_form(equation, variable_names)
+            item["equation_eval"] = eq_eval
+
+            try:
+                train_pred = eureka_tool.eval_equation_on_rows(eq_eval, train_rows, variable_names)
+                train_mse = eureka_tool.compute_mse(y_train, train_pred)
+            except Exception:
+                train_mse = float("nan")
+
+            if isinstance(train_mse, float) and math.isfinite(train_mse):
+                item["train_mse"] = float(train_mse)
+                item["mse_source"] = "recomputed"
+            else:
+                item["train_mse"] = None
+                item["mse_source"] = item.get("mse_source", "reported")
+
+            ood_mse = None
+            if ood_rows:
+                try:
+                    ood_pred = eureka_tool.eval_equation_on_rows(eq_eval, ood_rows, variable_names)
+                    ood_mse_raw = eureka_tool.compute_mse(y_ood, ood_pred)
+                    if isinstance(ood_mse_raw, float) and math.isfinite(ood_mse_raw):
+                        ood_mse = float(ood_mse_raw)
+                except Exception:
+                    ood_mse = None
+            item["ood_mse"] = ood_mse
+            if item.get("train_mse") is not None and ood_mse is not None:
+                item["ood_gap"] = float(ood_mse - item["train_mse"])
+            else:
+                item["ood_gap"] = None
+
+        best = self._pick_best_result(results)
+        if best:
+            evaluation["best_rank"] = best.get("rank")
+            evaluation["best_train_mse"] = best.get("train_mse")
+            evaluation["best_ood_mse"] = best.get("ood_mse")
+            evaluation["best_ood_gap"] = best.get("ood_gap")
+
+        return evaluation
+
+    def _equation_to_eval_form(self, equation: str, variable_names: list[str]) -> str:
+        """将 PySR 方程转换为可被 eurekatool 解析的表达式。"""
+        eq = (equation or "").strip()
+        # 去掉常见前缀: "f = ..."
+        if "=" in eq:
+            lhs, rhs = eq.split("=", 1)
+            if lhs.strip().isidentifier() or lhs.strip().lower() in {"y", "f"}:
+                eq = rhs.strip()
+
+        # #1 -> x1
+        def _replace(match: re.Match[str]) -> str:
+            idx = int(match.group(1))
+            if idx <= 0:
+                return match.group(0)
+            if idx - 1 < len(variable_names):
+                name = variable_names[idx - 1]
+                if isinstance(name, str) and name.strip():
+                    return name.strip()
+            return f"x{idx}"
+
+        eq = re.sub(r"#(\d+)", _replace, eq)
+        return eq
+
+    def _pick_best_result(self, results: list[dict[str, Any]]) -> dict[str, Any] | None:
+        def _score(item: dict[str, Any]) -> tuple[float, float, int]:
+            train = item.get("train_mse")
+            reported = item.get("mse")
+            complexity = item.get("complexity")
+            rank = item.get("rank")
+
+            train_v = float(train) if isinstance(train, (int, float)) else float("inf")
+            reported_v = float(reported) if isinstance(reported, (int, float)) else float("inf")
+            complexity_v = int(complexity) if isinstance(complexity, (int, float)) else 10**9
+            rank_v = int(rank) if isinstance(rank, (int, float)) else 10**9
+            primary = train_v if math.isfinite(train_v) else reported_v
+            return (primary, float(complexity_v), rank_v)
+
+        candidates = [r for r in results if isinstance(r, dict) and isinstance(r.get("equation"), str)]
+        if not candidates:
+            return None
+        return sorted(candidates, key=_score)[0]

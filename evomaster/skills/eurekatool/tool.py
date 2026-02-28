@@ -24,6 +24,7 @@ _ALLOWED_FUNCS: dict[str, Callable[..., float]] = {
     "exp": math.exp,
     "log": math.log,
     "sqrt": math.sqrt,
+    "square": lambda x: x * x,
     "abs": abs,
     "pow": pow,
 }

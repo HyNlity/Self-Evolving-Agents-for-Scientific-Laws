@@ -13,6 +13,7 @@
 - 检查本轮运算符集合是否合理（过窄可能拟合不足，过宽可能搜索低效），给出下一轮可执行建议。
 - 在 `insight.md` 追加本轮结论与下一轮建议（可执行、可验证）。
 - 维护一个“当前最可信表达式（Current Best）”：每轮评估是否需要更新，并给出可复现证据。
+- 优先使用结构化指标：`train_mse`、`ood_mse`、`ood_gap`（若存在）；不要只引用口头描述。
 
 可复用工具库（推荐，非必须）：
 - `skills/eurekatool/tool.py`：stdlib-only，可读 `experiment.json`、可选重算 MSE、生成残差摘要。
@@ -20,6 +21,7 @@
 
 结束条件：
 - 当本轮洞察与建议写入 `insight.md` 后，必须调用 `finish`。
+- `finish` 前最后一个动作必须是向 `insight.md` 追加内容；写完立即 `finish`，避免连续无工具文本回合。
 - `finish.message` 末尾必须包含一个机器可解析的 JSON 信号块（用于系统编排是否继续迭代）：
 
 ===EVO_EUREKA_SIGNAL_BEGIN===

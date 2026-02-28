@@ -228,8 +228,15 @@ class HamiltonPlayground(BasePlayground):
             # 保存实验记录
             self._save_experiment_record()
 
+            final_status = self._compute_final_status()
+            if final_status != "completed":
+                self.logger.warning(
+                    "Experiment finished without effective structured outputs; final status=%s",
+                    final_status,
+                )
+
             return {
-                "status": "completed",
+                "status": final_status,
                 "total_rounds": len(self.experiment_record["rounds"]),
                 "experiment_record": self.experiment_record,
             }
@@ -323,6 +330,76 @@ class HamiltonPlayground(BasePlayground):
         except Exception:
             pass
         return False
+
+    def _has_effective_signal(self, signal) -> bool:
+        """判断 Eureka 结构化信号是否包含可继承的有效信息。"""
+        if not isinstance(signal, dict):
+            return False
+
+        if bool(signal.get("satisfied", False)) or bool(signal.get("update_best", False)):
+            return True
+
+        best_equation = signal.get("best_equation")
+        if isinstance(best_equation, str) and best_equation.strip() and best_equation.strip().lower() != "none":
+            return True
+
+        if signal.get("best_mse") is not None:
+            return True
+
+        next_round_plan = signal.get("next_round_plan")
+        if isinstance(next_round_plan, list):
+            if any(isinstance(item, str) and item.strip() for item in next_round_plan):
+                return True
+
+        return False
+
+    def _has_effective_pysr_results(self) -> bool:
+        """检查 workspace/experiment.json 是否存在可用方程结果。"""
+        if not self.workspace_dir:
+            return False
+
+        experiment_file = self.workspace_dir / "experiment.json"
+        if not experiment_file.exists():
+            return False
+
+        try:
+            payload = json.loads(experiment_file.read_text(encoding="utf-8"))
+        except Exception:
+            return False
+
+        rounds = payload.get("rounds", {})
+        if not isinstance(rounds, dict):
+            return False
+
+        for _, round_data in rounds.items():
+            if not isinstance(round_data, dict):
+                continue
+            if int(round_data.get("exit_code", 1) or 1) != 0:
+                continue
+            results = round_data.get("results", [])
+            if not isinstance(results, list):
+                continue
+            for item in results:
+                if not isinstance(item, dict):
+                    continue
+                equation = item.get("equation")
+                if isinstance(equation, str) and equation.strip():
+                    return True
+        return False
+
+    def _compute_final_status(self) -> str:
+        """计算本次实验总体状态，避免“流程跑完但结果无效”被标记为 completed。"""
+        rounds = self.experiment_record.get("rounds", [])
+        if not isinstance(rounds, list):
+            rounds = []
+
+        has_satisfied = any(self._is_satisfied((r or {}).get("eureka_signal", {})) for r in rounds if isinstance(r, dict))
+        has_effective_signal = any(self._has_effective_signal((r or {}).get("eureka_signal", {})) for r in rounds if isinstance(r, dict))
+        has_effective_results = self._has_effective_pysr_results()
+
+        if has_satisfied or has_effective_signal or has_effective_results:
+            return "completed"
+        return "partial"
 
     def _save_experiment_record(self):
         """保存实验记录"""

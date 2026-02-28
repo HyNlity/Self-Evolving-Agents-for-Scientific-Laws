@@ -26,12 +26,17 @@
 - 若 `round > 1`，先读取 `experiment.json` 中上一轮记录，再结合“上一轮 Eureka Handoff”确定本轮策略。
 - 先跑一次本轮分析后再调用 `pysr_symbolic_regression`。
 - 调用 `pysr_symbolic_regression` 时，必须显式传入 `binary_operators`、`unary_operators`、`operator_rationale`（由本轮分析得出）。
+- 调用后必须读取 `experiment.json` 的本轮记录并在 `analysis.md` 明确写出：
+  - best `train_mse`
+  - best `ood_mse` / `ood_gap`（若存在 OOD 数据）
+  - best complexity（并判断是否 <= 20）
 
 ## 运算符选择最小策略（必须遵守）
 - Round 1：从小而稳健的集合开始（避免盲目放大搜索空间）。
 - Round > 1：明确写出“相对上一轮”的变化（延续/扩展/收缩）和理由。
 - 若误差下降不明显或复杂度持续上升：优先收缩或替换部分运算符，而不是只增加运算符。
 - `operator_rationale` 不能写空话，必须包含可验证证据（误差趋势、残差模式、复杂度或搜索效率）。
+- 若最佳复杂度 > 20：下一轮优先收缩 unary 或减少变量，不要继续盲目加算子。
 
 ## PySR 调用参数模板（示例）
 ```json
@@ -56,6 +61,7 @@
 - 在 `analysis.md` 中明确写出：上一轮operators、本轮operators、变化原因、预期收益。
 - 若存在上一轮 handoff，需逐条回应其 `next_round_plan`（采纳/不采纳 + 理由）。
 - 只要求“可复现”即可，不必强制列固定模型结构。
+- 在追加 `analysis.md` 后立即调用 `finish`；不要再进行无工具文本往返。
 
 ## 复用规则（建议）
 - 本轮一次性脚本：`history/round{input_data[round]}/scripts/`

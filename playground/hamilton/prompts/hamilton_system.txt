@@ -10,6 +10,7 @@
 - 基于 `data.csv`（可选 `data_ood.csv`）寻找清晰简洁的表达式。
 - 每轮在 `analysis.md` 追加：你做了什么、变量筛选依据、PySR 参数变化和原因、下一轮计划。
 - 需要符号回归时调用工具 `pysr_symbolic_regression`，并确保结果被记录到 `experiment.json`。
+- 本轮至少给出并引用结构化指标：`train_mse`，若存在 `data_ood.csv` 还需引用 `ood_mse` 与 `ood_gap`（来自 `experiment.json.rounds[round].results[*]`）。
 - 每次调用 `pysr_symbolic_regression` 时，`binary_operators` 和 `unary_operators` 必须由你基于本轮数据分析显式给出，不能依赖固定默认值；同时给出 `operator_rationale`。
 - 当本轮编号 > 1 时，调用 PySR 前必须先读取上一轮 `experiment.json`（至少包含上一轮 operators、MSE、复杂度）并说明“为何延续/收缩/扩展”。
 
@@ -17,6 +18,8 @@
 1) 先小后大：优先从小而可解释的运算符集合开始，再按证据扩展。
 2) 逐轮可控变化：相对上一轮，优先做小步调整（新增或删除少量运算符），不要无依据大幅改动。
 3) 证据驱动：`operator_rationale` 必须引用本轮可验证证据（如残差形态、MSE变化、过拟合迹象、搜索效率）。
+4) 复杂度约束：优先让最佳方程复杂度 <= 20；若当前最佳 > 20，下一轮必须明确“收缩动作”。
 
 结束条件：
 - 当你认为本轮目标完成/信息充分时，必须调用 `finish`，在 `message` 中给出简短可执行的结论与下一步。
+- `finish` 前最后一个实操动作必须是“写入 analysis.md（append）”；写完后立刻 `finish`，不要进入无工具空转对话。

@@ -28,6 +28,22 @@ class MockSession:
 
     def __init__(self, workspace_path: str):
         self.config = type("Config", (), {"workspace_path": workspace_path})
+        ws = Path(workspace_path)
+        ws.mkdir(parents=True, exist_ok=True)
+        # Provide train/OOD datasets so PySRTool can write structured train/ood metrics.
+        ws.joinpath("data.csv").write_text(
+            "x1,x2,x3,x4,y\n"
+            "1,2,0,0,3\n"
+            "2,1,0,0,3\n"
+            "3,4,0,0,7\n",
+            encoding="utf-8",
+        )
+        ws.joinpath("data_ood.csv").write_text(
+            "x1,x2,x3,x4,y\n"
+            "4,5,0,0,9\n"
+            "5,6,0,0,11\n",
+            encoding="utf-8",
+        )
 
     def exec_bash(self, command, timeout=300, is_input=False):
         """模拟 exec_bash 执行"""
@@ -43,8 +59,8 @@ class MockSession:
                 pass
             return {"stdout": "", "stderr": "", "exit_code": 0}
 
-        # 检查是否是运行 python 脚本的命令 - 模拟成功但不真正运行PySR
-        if "python3" in command and "pysr_round" in command:
+        # 检查是否是运行 pysr 脚本的命令 - 模拟成功但不真正运行PySR
+        if "pysr_round" in command and ".py" in command:
             # 模拟 PySR 输出
             mock_output = """Running PySR with niterations=10, max_evals=1000
 Binary operators: ["+", "-", "*", "/"]
@@ -62,7 +78,7 @@ MSE: 0.5
 Complexity: 4
 --------------------------------------------------
 ===EVO_PYSR_RESULTS_JSON_BEGIN===
-[{"rank": 1, "equation": "x1 + x2 + x3", "mse": 0.0, "complexity": 3}, {"rank": 2, "equation": "x1 * x2 + x3", "mse": 0.5, "complexity": 4}]
+[{"rank": 1, "equation": "x1 + x2", "mse": 0.0, "complexity": 3}, {"rank": 2, "equation": "x1 * x2", "mse": 0.5, "complexity": 4}]
 ===EVO_PYSR_RESULTS_JSON_END===
 """
             return {"stdout": mock_output, "stderr": "", "exit_code": 0}
@@ -167,6 +183,11 @@ def test_all_params():
                     round_data = (exp_data.get("rounds", {}) or {}).get(str(info.get("round")), {}) or {}
                     print(f"  - Config recorded: {bool(round_data.get('pysr_config'))}")
                     print(f"  - Results recorded: {bool(round_data.get('results'))}")
+                    results = round_data.get("results", []) if isinstance(round_data, dict) else []
+                    if results and isinstance(results[0], dict):
+                        print(f"  - train_mse recorded: {'train_mse' in results[0]}")
+                        print(f"  - ood_mse recorded: {'ood_mse' in results[0]}")
+                    print(f"  - Round evaluation recorded: {bool(round_data.get('evaluation'))}")
 
                 # 检查输出
                 if "EVO_PYSR_RESULTS_JSON_BEGIN" in observation:

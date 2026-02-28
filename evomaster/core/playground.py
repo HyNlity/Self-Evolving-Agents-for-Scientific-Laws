@@ -340,9 +340,14 @@ class BasePlayground:
 
         # 提取 Agent 配置
         max_turns = agent_config.get('max_turns', 20)
+        max_no_tool = agent_config.get('max_consecutive_no_tool_calls', 0)
         context_config_dict = agent_config.get('context', {})
         context_config = ContextConfig(**context_config_dict)
-        agent_cfg = AgentConfig(max_turns=max_turns, context_config=context_config)
+        agent_cfg = AgentConfig(
+            max_turns=max_turns,
+            max_consecutive_no_tool_calls=max_no_tool,
+            context_config=context_config,
+        )
 
         # 获取输出配置
         output_config = self._get_output_config()

@@ -1,0 +1,97 @@
+llm:
+  openai:
+    provider: openai
+    model: ${GPT_CHAT_MODEL}
+    api_key: ${OPENAI_API_KEY}
+    base_url: ${GPT_BASE_URL}
+    temperature: 0.7
+    max_tokens: 16384
+    timeout: 120
+    max_retries: 3
+    retry_delay: 1.0
+  anthropic:
+    provider: anthropic
+    model: claude-haiku-4-5-20251001
+    api_key: ${ANTHROPIC_API_KEY}
+    base_url: ${ANTHROPIC_BASE_URL}
+    temperature: 0.7
+    max_tokens: 16384
+    timeout: 120
+    max_retries: 3
+    retry_delay: 1.0
+  default: openai
+agents:
+  hamilton:
+    llm: openai
+    max_turns: 20
+    max_consecutive_no_tool_calls: 6
+    enable_tools: true
+    context:
+      max_tokens: 128000
+      truncation_strategy: latest_half
+      preserve_system_messages: true
+      preserve_recent_turns: 10
+    system_prompt_file: prompts/hamilton_system.txt
+    user_prompt_file: prompts/hamilton_user.txt
+  eureka:
+    llm: openai
+    max_turns: 20
+    max_consecutive_no_tool_calls: 6
+    enable_tools: true
+    context:
+      max_tokens: 128000
+      truncation_strategy: latest_half
+      preserve_system_messages: true
+      preserve_recent_turns: 10
+    system_prompt_file: prompts/eureka_system.txt
+    user_prompt_file: prompts/eureka_user.txt
+skills:
+  enabled: true
+  skills_root: evomaster/skills
+mcp:
+  config_file: ../mcp_config.json
+  enabled: false
+session:
+  type: local
+  local:
+    working_dir: ./playground/hamilton/workspace
+    timeout: 300
+    gpu_devices: null
+    cpu_devices: null
+    symlinks:
+      evomaster/skills/eurekatool: skills/eurekatool
+experiment:
+  record_dir: ./playground/hamilton/records
+  max_rounds: 2
+  pysr:
+    niterations: 30
+    max_evals: 10000
+    timeout_in_seconds: 120
+system_prompt_file: ../../../playground/hamilton/prompts/hamilton_system.txt
+logging:
+  level: INFO
+  format: '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+  file: null
+  console: true
+  log_path: ./logs/hamilton.log
+project_root: .
+workspace: ./workspace
+results_dir: ./results
+debug: false
+env:
+  cluster:
+    debug_pool:
+      type: cpu
+      max_concurrent: 1
+    train_pool:
+      type: cpu
+      max_concurrent: 1
+  docker:
+    base_image: python:3.11-slim
+    registry: docker.io
+    pull_policy: if_not_present
+  scheduler:
+    type: local
+    queue_timeout: 300
+    retry_failed: false
+    max_retries: 1

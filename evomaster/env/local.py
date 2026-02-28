@@ -194,6 +194,66 @@ class LocalEnv(BaseEnv):
             except OSError as e:
                 self.logger.warning(f"创建软链接失败: {source_item} -> {target_item}, 错误: {e}")
 
+    def _discover_project_venv_bin(self) -> Path | None:
+        """尽力发现项目内 .venv/bin 路径。"""
+        candidates: list[Path] = []
+
+        # 1) 当前进程已激活的虚拟环境
+        venv_env = (os.environ.get("VIRTUAL_ENV") or "").strip()
+        if venv_env:
+            candidates.append(Path(venv_env) / "bin")
+
+        # 2) 从配置目录向上查找 .venv
+        config_dir_raw = getattr(self.config.session_config, "config_dir", None)
+        if config_dir_raw:
+            try:
+                start = Path(config_dir_raw).resolve()
+                for p in [start] + list(start.parents):
+                    candidates.append(p / ".venv" / "bin")
+            except Exception:
+                pass
+
+        # 3) 从当前工作目录向上查找 .venv
+        try:
+            cwd = Path.cwd().resolve()
+            for p in [cwd] + list(cwd.parents):
+                candidates.append(p / ".venv" / "bin")
+        except Exception:
+            pass
+
+        seen: set[str] = set()
+        for bin_dir in candidates:
+            key = str(bin_dir)
+            if key in seen:
+                continue
+            seen.add(key)
+            py = bin_dir / "python"
+            if py.exists() and os.access(py, os.X_OK):
+                return bin_dir
+        return None
+
+    def _inject_python_toolchain_env(self, env: dict[str, str]) -> dict[str, str]:
+        """向命令执行环境注入可用的 python/pip 路径（保持向后兼容）。"""
+        venv_bin = self._discover_project_venv_bin()
+        if venv_bin is None:
+            return env
+
+        venv_dir = venv_bin.parent
+        venv_bin_str = str(venv_bin)
+        python_exec = str(venv_bin / "python")
+
+        path_raw = env.get("PATH", "")
+        path_parts = path_raw.split(os.pathsep) if path_raw else []
+        if venv_bin_str not in path_parts:
+            env["PATH"] = venv_bin_str + (os.pathsep + path_raw if path_raw else "")
+
+        env.setdefault("VIRTUAL_ENV", str(venv_dir))
+        env.setdefault("HAMILTON_PYTHON_EXECUTABLE", python_exec)
+        env.setdefault("EVOMASTER_PYTHON_EXECUTABLE", python_exec)
+        env.setdefault("PYTHON_EXECUTABLE", python_exec)
+        env.setdefault("PIP_DISABLE_PIP_VERSION_CHECK", "1")
+        return env
+
     def local_exec(
         self,
         command: str,
@@ -231,6 +291,7 @@ class LocalEnv(BaseEnv):
 
         # 构建环境变量
         env = os.environ.copy()
+        env = self._inject_python_toolchain_env(env)
         
         # 设置 GPU 设备
         if gpu_devices is not None:

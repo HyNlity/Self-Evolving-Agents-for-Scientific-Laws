@@ -37,6 +37,10 @@ if TYPE_CHECKING:
 class AgentConfig(BaseModel):
     """Agent 配置"""
     max_turns: int = Field(default=100, description="最大执行轮数")
+    max_consecutive_no_tool_calls: int = Field(
+        default=0,
+        description="启用工具时，连续无工具调用的最大步数；超过后提前失败（<=0 表示禁用）",
+    )
     context_config: ContextConfig = Field(
         default_factory=ContextConfig,
         description="上下文管理配置"
@@ -118,6 +122,7 @@ class BaseAgent(ABC):
 
         # 当前步骤计数
         self._step_count = 0
+        self._consecutive_no_tool_calls = 0
 
         # 存储初始系统提示词和用户提示词（用于重置）
         self._initial_system_prompt: str | None = None
@@ -208,6 +213,7 @@ class BaseAgent(ABC):
 
         self.trajectory.dialogs.append(self.current_dialog)
         self._step_count = 0
+        self._consecutive_no_tool_calls = 0
 
     def _step(self) -> bool:
         """执行一步
@@ -242,12 +248,31 @@ class BaseAgent(ABC):
                 self._append_trajectory_entry(dialog_for_query, step_record)
                 return True  # 直接结束
 
+            self._consecutive_no_tool_calls += 1
+            if self._should_fail_fast_no_tool_call():
+                preview = (assistant_message.content or "").replace("\n", "\\n")
+                if len(preview) > 200:
+                    preview = preview[:200] + "..."
+                self.logger.warning(
+                    "⚠️  Consecutive no-tool-call limit reached (%s). "
+                    "Fail fast to avoid max_turns loop. assistant_preview=%s",
+                    self._consecutive_no_tool_calls,
+                    preview,
+                )
+                self.trajectory.add_step(step_record)
+                self._append_trajectory_entry(dialog_for_query, step_record)
+                raise RuntimeError(
+                    f"consecutive_no_tool_calls_exceeded:{self._consecutive_no_tool_calls}"
+                )
+
             # 如果启用了工具但没有工具调用，提示继续
             self._handle_no_tool_call()
             self.trajectory.add_step(step_record)
             # 追加保存本次step到轨迹文件（包含tool_responses）
             self._append_trajectory_entry(dialog_for_query, step_record)
             return False
+
+        self._consecutive_no_tool_calls = 0
 
         # 处理工具调用
         should_finish = False
@@ -388,6 +413,18 @@ class BaseAgent(ABC):
             "IMPORTANT: You should not ask for human help."
         )
         self.current_dialog.add_message(UserMessage(content=prompt))
+
+    def _should_fail_fast_no_tool_call(self) -> bool:
+        """是否触发“连续无工具调用”提前失败保护。"""
+        if not self.enable_tools:
+            return False
+        try:
+            limit = int(getattr(self.config, "max_consecutive_no_tool_calls", 0) or 0)
+        except Exception:
+            limit = 0
+        if limit <= 0:
+            return False
+        return self._consecutive_no_tool_calls >= limit
 
 
     def _get_tool_specs(self) -> list:

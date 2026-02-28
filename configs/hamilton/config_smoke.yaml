@@ -36,7 +36,8 @@ agents:
   # Hamilton Agent - 主分析Agent，变量分析、PySR调用、维护 analysis.md
   hamilton:
     llm: "openai"
-    max_turns: 100
+    max_turns: 20
+    max_consecutive_no_tool_calls: 6
     enable_tools: true
 
     context:
@@ -52,7 +53,8 @@ agents:
   # 可以写代码、残差分析、偏导数分析、物理含义思考
   eureka:
     llm: "openai"
-    max_turns: 80
+    max_turns: 20
+    max_consecutive_no_tool_calls: 6
     enable_tools: true
 
     context:
