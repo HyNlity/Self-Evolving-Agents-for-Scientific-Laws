@@ -1,8 +1,11 @@
 """
 PySR Tool - 符号回归工具
 
-封装PySR的关键参数，让Agent专注于变量选择和模板设计。
-支持自动记录参数和结果到 experiment.json
+封装 PySR 的关键参数，让 Agent 专注于变量选择和模板设计。
+支持自动记录参数和结果到 experiment.json。
+
+v2: 使用 PySRRegressor API，支持自定义数据文件、更多搜索参数、
+    可选 expression_spec、可选 OOD 评估。
 """
 
 from __future__ import annotations
@@ -17,25 +20,25 @@ from evomaster.agent.tools.base import BaseTool, BaseToolParams
 
 
 class ExpressionSpec(BaseModel):
-    """表达式模板规格
+    """表达式模板规格（高级模式）
 
-    用于定义期望的方程结构，加速PySR搜索。
+    用于定义期望的方程结构，加速 PySR 搜索。
 
     Example:
     {
-        "expressions": ["f", "g"],           # 占位符子表达式
-        "variable_names": ["x1", "x2", "x3"], # 数据中的特征名
-        "combine": "sin(f(x1)) * g(x2, x3)"   # 期望的方程骨架
+        "expressions": ["f", "g"],
+        "variable_names": ["x1", "x2", "x3"],
+        "combine": "sin(f(x1)) * g(x2, x3)"
     }
     """
     expressions: list[str] = Field(
-        description="占位符子表达式列表，由PySR自动拟合"
+        description="占位符子表达式列表，由 PySR 自动拟合"
     )
     variable_names: list[str] = Field(
         description="数据中的特征变量名列表"
     )
     combine: str = Field(
-        description="最终方程骨架，使用expressions中的占位符"
+        description="最终方程骨架，使用 expressions 中的占位符"
     )
 
 
@@ -50,24 +53,48 @@ class PySRToolParams(BaseToolParams):
         description="目标变量名（数据列名）"
     )
 
-    expression_spec: ExpressionSpec = Field(
-        description="""表达式模板规格，包含:
-- expressions: 占位符列表，如 ["f", "g"]
-- variable_names: 特征变量名列表
-- combine: 方程骨架，如 "f(x1) + g(x2)"
-"""
+    variable_names: list[str] | None = Field(
+        default=None,
+        description="特征变量名列表。若省略且未指定 expression_spec，则使用 data 中除 y 之外的所有列"
+    )
+
+    data_file: str = Field(
+        default="data.csv",
+        description="数据文件路径（相对于 workspace），默认 data.csv。Agent 可指定派生数据文件"
+    )
+
+    # ===== 高级模式：表达式模板（可选） =====
+
+    expression_spec: ExpressionSpec | None = Field(
+        default=None,
+        description="可选的表达式模板规格（高级模式）。若指定，则使用模板化搜索。若省略，则使用标准 model.fit(X, y) 自由搜索"
     )
 
     # ===== 搜索控制 =====
 
     niterations: int = Field(
         default=100,
-        description="PySR迭代次数"
+        description="PySR 迭代次数"
     )
 
-    max_evals: int = Field(
-        default=100000,
-        description="最大评估次数"
+    maxsize: int = Field(
+        default=20,
+        description="表达式最大节点数（控制复杂度上限）"
+    )
+
+    parsimony: float = Field(
+        default=0.0032,
+        description="复杂度惩罚系数（越大越偏好简单表达式）"
+    )
+
+    populations: int = Field(
+        default=20,
+        description="进化种群数量"
+    )
+
+    timeout_in_seconds: int | None = Field(
+        default=None,
+        description="PySR 超时时间（秒）。若不指定则不设超时"
     )
 
     # ===== 运算符 =====
@@ -79,7 +106,14 @@ class PySRToolParams(BaseToolParams):
 
     unary_operators: list[str] = Field(
         default=["sin", "cos", "exp", "log"],
-        description="一元运算符列表，如 ['sin', 'cos', 'exp', 'log']"
+        description="一元运算符列表"
+    )
+
+    # ===== OOD 评估 =====
+
+    ood_data_file: str | None = Field(
+        default=None,
+        description="可选的 OOD 数据文件路径（相对于 workspace）。若指定则自动计算 OOD MSE"
     )
 
 
@@ -90,7 +124,7 @@ class PySRTool(BaseTool):
     params_class: ClassVar[type[BaseToolParams]] = PySRToolParams
 
     def execute(self, session, args_json: str) -> tuple[str, dict[str, Any]]:
-        """执行PySR符号回归"""
+        """执行 PySR 符号回归"""
         try:
             params = self.parse_params(args_json)
         except Exception as e:
@@ -98,10 +132,10 @@ class PySRTool(BaseTool):
 
         assert isinstance(params, PySRToolParams)
 
-        # 获取当前轮次 - 从环境变量或默认为 1
+        # 获取当前轮次
         round_num = int(os.environ.get("HAMILTON_ROUND", "1"))
 
-        # 构建PySR调用代码（写入脚本文件，避免 python -c 的引号/换行转义脆弱性）
+        # 构建 PySR 调用代码
         code = self._build_pysr_code(params)
 
         workspace = session.config.workspace_path
@@ -133,7 +167,6 @@ class PySRTool(BaseTool):
         # 提取结果并记录到 experiment.json
         pysr_results = self._parse_pysr_results(stdout)
         if not pysr_results:
-            # 兼容旧格式：从 stdout 文本里解析
             pysr_results = self._parse_pysr_output(stdout)
 
         self._record_to_experiment_json(
@@ -157,7 +190,6 @@ class PySRTool(BaseTool):
 
         experiment_file = os.path.join(workspace, "experiment.json")
 
-        # 读取现有记录或创建新记录
         experiment_data: dict[str, Any] = {"rounds": {}}
         if os.path.exists(experiment_file):
             try:
@@ -166,7 +198,6 @@ class PySRTool(BaseTool):
                 if isinstance(loaded, dict):
                     experiment_data = loaded
             except json.JSONDecodeError:
-                # 文件损坏则从空结构开始（避免整个流程崩溃）
                 experiment_data = {"rounds": {}}
 
         # 构建本轮记录
@@ -182,24 +213,39 @@ class PySRTool(BaseTool):
                 "equation": equation,
                 "mse": item.get("mse", item.get("loss")),
                 "complexity": item.get("complexity"),
+                "ood_mse": item.get("ood_mse"),
             })
+
+        # 确定记录的 variable_names
+        var_names = params.variable_names
+        if var_names is None and params.expression_spec is not None:
+            var_names = params.expression_spec.variable_names
+
+        pysr_config = {
+            "y": params.y,
+            "data_file": params.data_file,
+            "variable_names": var_names,
+            "niterations": params.niterations,
+            "maxsize": params.maxsize,
+            "parsimony": params.parsimony,
+            "populations": params.populations,
+            "binary_operators": params.binary_operators,
+            "unary_operators": params.unary_operators,
+        }
+        if params.expression_spec is not None:
+            pysr_config["expression_spec"] = params.expression_spec.model_dump()
+        if params.timeout_in_seconds is not None:
+            pysr_config["timeout_in_seconds"] = params.timeout_in_seconds
+        if params.ood_data_file is not None:
+            pysr_config["ood_data_file"] = params.ood_data_file
 
         round_record = {
             "round": round_num,
-            "pysr_config": {
-                "y": params.y,
-                "variable_names": params.expression_spec.variable_names,
-                "expression_spec": params.expression_spec.model_dump(),
-                "niterations": params.niterations,
-                "max_evals": params.max_evals,
-                "binary_operators": params.binary_operators,
-                "unary_operators": params.unary_operators,
-            },
+            "pysr_config": pysr_config,
             "results": normalized_results,
             "exit_code": exit_code,
         }
 
-        # 写入记录（确保 rounds 结构存在）
         rounds = experiment_data.get("rounds")
         if not isinstance(rounds, dict):
             rounds = {}
@@ -210,7 +256,7 @@ class PySRTool(BaseTool):
             json.dump(experiment_data, f, ensure_ascii=False, indent=2)
 
     def _parse_pysr_results(self, stdout: str) -> list[dict]:
-        """从 stdout 中提取 JSON 结果块（优先；更鲁棒）"""
+        """从 stdout 中提取 JSON 结果块"""
         begin = "===EVO_PYSR_RESULTS_JSON_BEGIN==="
         end = "===EVO_PYSR_RESULTS_JSON_END==="
         if begin not in stdout or end not in stdout:
@@ -226,16 +272,12 @@ class PySRTool(BaseTool):
             return []
 
     def _parse_pysr_output(self, stdout: str) -> list[dict]:
-        """解析 PySR 输出，提取结果表"""
+        """解析 PySR 输出，提取结果表（兼容旧格式）"""
         results = []
-
-        # PySR 输出格式解析 - 基于 _build_pysr_code 的输出格式
         lines = stdout.split("\n")
         i = 0
         while i < len(lines):
             line = lines[i].strip()
-
-            # 检测结果行格式: Rank N:
             if line.startswith("Rank "):
                 try:
                     rank = int(line.split("Rank ")[1].split(":")[0])
@@ -245,8 +287,8 @@ class PySRTool(BaseTool):
                 expr = ""
                 mse = None
                 complexity = None
+                ood_mse = None
 
-                # 往下读取表达式和指标
                 i += 1
                 while i < len(lines):
                     detail_line = lines[i].strip()
@@ -257,13 +299,16 @@ class PySRTool(BaseTool):
                             mse = float(detail_line.replace("MSE:", "").strip())
                         except ValueError:
                             mse = None
+                    elif detail_line.startswith("OOD_MSE:"):
+                        try:
+                            ood_mse = float(detail_line.replace("OOD_MSE:", "").strip())
+                        except ValueError:
+                            ood_mse = None
                     elif detail_line.startswith("Complexity:"):
                         try:
                             complexity = int(detail_line.replace("Complexity:", "").strip())
                         except ValueError:
                             complexity = None
-
-                    # 结果块结束标志
                     if detail_line.startswith("Rank ") or detail_line.startswith("=") or detail_line.startswith("-"):
                         break
                     i += 1
@@ -274,124 +319,259 @@ class PySRTool(BaseTool):
                         "equation": expr,
                         "mse": mse,
                         "complexity": complexity,
+                        "ood_mse": ood_mse,
                     })
-                # 如果是遇到下一个 Rank 行导致 break，不要跳过该行
                 if i < len(lines) and lines[i].strip().startswith("Rank "):
                     continue
-
             i += 1
-
         return results
 
     def _build_pysr_code(self, params: PySRToolParams) -> str:
-        """构建PySR调用代码"""
-        spec = params.expression_spec.model_dump()
+        """构建 PySR 调用代码（使用 PySRRegressor API）"""
 
-        # 将列表转为Python代码中的列表表示
-        var_names = spec.get("variable_names", [])
-        expressions = spec.get("expressions", [])
-        combine = spec.get("combine", "")
+        data_file = json.dumps(params.data_file)
+        y_col = json.dumps(params.y)
+        binary_ops = json.dumps(params.binary_operators)
+        unary_ops = json.dumps(params.unary_operators)
 
-        # 序列化参数
-        binary_ops_json = json.dumps(params.binary_operators)
-        unary_ops_json = json.dumps(params.unary_operators)
+        # Determine variable_names source
+        if params.expression_spec is not None:
+            var_names = json.dumps(params.expression_spec.variable_names)
+            expressions = json.dumps(params.expression_spec.expressions)
+            combine = json.dumps(params.expression_spec.combine)
+            use_template = True
+        else:
+            var_names = json.dumps(params.variable_names) if params.variable_names else "None"
+            use_template = False
 
-        # 使用模板字符串并替换变量
-        code = """
-import pandas as pd
-import numpy as np
-import json
-import sys
+        # Build timeout arg
+        timeout_arg = ""
+        if params.timeout_in_seconds is not None:
+            timeout_arg = f"    timeout_in_seconds={params.timeout_in_seconds},\n"
 
-try:
-    from pysr import pysr
-except ImportError:
-    print("Error: PySR not installed. Run: pip install pysr")
-    sys.exit(1)
+        # OOD evaluation
+        has_ood = params.ood_data_file is not None
+        ood_file = json.dumps(params.ood_data_file) if has_ood else "None"
 
-# 加载数据
-df = pd.read_csv('data.csv')
+        # --- Build the script ---
+        lines = [
+            "import pandas as pd",
+            "import numpy as np",
+            "import json",
+            "import sys",
+            "import os",
+            "",
+            "try:",
+            "    from pysr import PySRRegressor",
+            "except ImportError:",
+            '    print("Error: PySR not installed. Run: pip install pysr")',
+            "    sys.exit(1)",
+            "",
+            f"# Load data",
+            f"data_file = {data_file}",
+            f"df = pd.read_csv(data_file)",
+            f"print(f'Loaded {{data_file}}: {{df.shape[0]}} rows, {{df.shape[1]}} columns')",
+            "",
+            f"# Target variable",
+            f"y_col = {y_col}",
+            f"y = df[y_col].values",
+            "",
+        ]
 
-# 提取特征和目标
-var_names = VARIABLE_NAMES_PLACEHOLDER
-X = df[var_names].values
-y_col = Y_COL_PLACEHOLDER
-y = df[y_col].values
+        if use_template:
+            # Template mode (expression_spec)
+            lines += [
+                f"# Feature variables (from expression_spec)",
+                f"var_names = {var_names}",
+                f"X = df[var_names].values",
+                "",
+                f"# Expression template",
+                f"expressions = {expressions}",
+                f"combine = {combine}",
+                "",
+            ]
+        else:
+            # Standard mode
+            lines += [
+                f"# Feature variables",
+                f"var_names = {var_names}",
+                "if var_names is None:",
+                f"    var_names = [c for c in df.columns if c != y_col]",
+                "X = df[var_names].values",
+                "",
+            ]
 
-# 表达式模板配置
-expressions = EXPRESSIONS_PLACEHOLDER
-combine = COMBINE_PLACEHOLDER
+        # Print config summary
+        lines += [
+            f'print("=" * 50)',
+            f'print("PySR Configuration:")',
+            f'print(f"  Target: {{y_col}}")',
+            f'print(f"  Features: {{var_names}}")',
+            f'print(f"  niterations: {params.niterations}")',
+            f'print(f"  maxsize: {params.maxsize}")',
+            f'print(f"  parsimony: {params.parsimony}")',
+            f'print(f"  populations: {params.populations}")',
+            f'print(f"  binary_operators: {binary_ops}")',
+            f'print(f"  unary_operators: {unary_ops}")',
+        ]
+        if use_template:
+            lines.append(f'print(f"  expression_template: {{{combine}}}")')
+        if params.timeout_in_seconds is not None:
+            lines.append(f'print(f"  timeout: {params.timeout_in_seconds}s")')
+        lines += [
+            f'print("=" * 50)',
+            "",
+        ]
 
-# PySR调用
-print("Running PySR with niterations=NITERATIONS_PLACEHOLDER, max_evals=MAX_EVALS_PLACEHOLDER")
-print("Binary operators: " + BINARY_OPS_PLACEHOLDER)
-print("Unary operators: " + UNARY_OPS_PLACEHOLDER)
-print("Expression template: " + COMBINE_PLACEHOLDER)
-print("-" * 50)
+        # Build PySRRegressor
+        lines += [
+            "# Create PySRRegressor",
+            "model = PySRRegressor(",
+            f"    niterations={params.niterations},",
+            f"    binary_operators={binary_ops},",
+            f"    unary_operators={unary_ops},",
+            f"    maxsize={params.maxsize},",
+            f"    parsimony={params.parsimony},",
+            f"    populations={params.populations},",
+        ]
+        if timeout_arg:
+            lines.append(timeout_arg.rstrip())
+        if use_template:
+            lines.append(f"    expression_spec={{")
+            lines.append(f"        'expressions': {expressions},")
+            lines.append(f"        'combine': {combine},")
+            lines.append(f"    }},")
 
-equations = pysr(
-    X,
-    y,
-    niterations=NITERATIONS_PLACEHOLDER,
-    max_evals=MAX_EVALS_PLACEHOLDER,
-    binary_operators=BINARY_OPS_PLACEHOLDER,
-    unary_operators=UNARY_OPS_PLACEHOLDER,
-    expression_selection=expressions,
-    combine=combine,
-    verbose=True,
-    n_jobs=1,
-    populations=20,
-)
+        lines += [
+            "    verbose=1,",
+            "    progress=True,",
+            ")",
+            "",
+            "# Fit model",
+            "model.fit(X, y, variable_names=var_names)",
+            "",
+        ]
 
-# 输出最优表达式
-print("=" * 50)
-print("PySR Results (Top 1):")
-print("=" * 50)
-results = []
-try:
-    selected = equations.select_k(1)
-except Exception:
-    selected = []
+        # Extract results
+        lines += [
+            "# Extract results",
+            'print("=" * 50)',
+            'print("PySR Results:")',
+            'print("=" * 50)',
+            "",
+            "results = []",
+            "try:",
+            "    eqs = model.equations_",
+            "    if hasattr(eqs, 'iterrows'):",
+            "        # DataFrame format",
+            "        for idx, row in eqs.iterrows():",
+            "            eq_str = str(row.get('equation', row.get('sympy_format', '')))",
+            "            loss = row.get('loss', None)",
+            "            complexity = row.get('complexity', None)",
+            "            try:",
+            "                loss_v = float(loss) if loss is not None else None",
+            "            except Exception:",
+            "                loss_v = None",
+            "            try:",
+            "                complexity_v = int(complexity) if complexity is not None else None",
+            "            except Exception:",
+            "                complexity_v = None",
+            "            results.append({",
+            '                "rank": len(results) + 1,',
+            '                "equation": eq_str,',
+            '                "mse": loss_v,',
+            '                "complexity": complexity_v,',
+            "            })",
+            "    else:",
+            "        # Fallback: try as list",
+            "        for i, eq in enumerate(eqs):",
+            "            eq_str = str(eq)",
+            "            results.append({",
+            '                "rank": i + 1,',
+            '                "equation": eq_str,',
+            '                "mse": None,',
+            '                "complexity": None,',
+            "            })",
+            "except Exception as e:",
+            '    print(f"Warning: could not parse equations: {e}")',
+            "",
+            "# Also try best equation",
+            "try:",
+            "    best = model.get_best()",
+            "    best_eq = str(best.get('equation', best.get('sympy_format', ''))) if isinstance(best, dict) else str(best)",
+            "    best_loss = None",
+            "    if isinstance(best, dict):",
+            "        best_loss = best.get('loss')",
+            "    elif hasattr(best, 'loss'):",
+            "        best_loss = best.loss",
+            "    try:",
+            "        best_loss = float(best_loss) if best_loss is not None else None",
+            "    except Exception:",
+            "        best_loss = None",
+            "    # Ensure best is in results",
+            "    best_in_results = any(r['equation'] == best_eq for r in results)",
+            "    if not best_in_results and best_eq:",
+            "        results.insert(0, {",
+            '            "rank": 0,',
+            '            "equation": best_eq,',
+            '            "mse": best_loss,',
+            '            "complexity": None,',
+            "        })",
+            "except Exception:",
+            "    pass",
+            "",
+            "# Sort by MSE (best first)",
+            "results_with_mse = [r for r in results if r['mse'] is not None]",
+            "results_without_mse = [r for r in results if r['mse'] is None]",
+            "results_with_mse.sort(key=lambda x: x['mse'])",
+            "results = results_with_mse + results_without_mse",
+            "for i, r in enumerate(results):",
+            "    r['rank'] = i + 1",
+            "",
+            "# Print top results",
+            "for r in results[:10]:",
+            '    print(f"Rank {r[\'rank\']}:")',
+            '    print(f"  Expression: {r[\'equation\']}")',
+            '    print(f"  MSE: {r[\'mse\']}")',
+            '    print(f"  Complexity: {r[\'complexity\']}")',
+            '    print("-" * 30)',
+            "",
+        ]
 
-for i, eq in enumerate(selected):
-    expr = getattr(eq, "expr", None)
-    loss = getattr(eq, "loss", None)
-    complexity = getattr(eq, "complexity", None)
-    expr_s = str(expr) if expr is not None else str(eq)
-    try:
-        loss_v = float(loss) if loss is not None else None
-    except Exception:
-        loss_v = None
-    try:
-        complexity_v = int(complexity) if complexity is not None else None
-    except Exception:
-        complexity_v = None
+        # OOD evaluation
+        lines += [
+            "# OOD evaluation",
+            f"ood_file = {ood_file}",
+            "if ood_file is None:",
+            "    # Auto-detect data_ood.csv",
+            "    if os.path.exists('data_ood.csv'):",
+            "        ood_file = 'data_ood.csv'",
+            "",
+            "if ood_file is not None and os.path.exists(ood_file):",
+            "    print(f'\\nOOD Evaluation on {ood_file}:')",
+            "    try:",
+            "        df_ood = pd.read_csv(ood_file)",
+            "        X_ood = df_ood[var_names].values",
+            "        y_ood = df_ood[y_col].values",
+            "        y_pred_ood = model.predict(X_ood)",
+            "        ood_mse = float(np.mean((y_ood - y_pred_ood) ** 2))",
+            "        print(f'  OOD MSE (best model): {ood_mse}')",
+            "        # Add OOD MSE to best result",
+            "        if results:",
+            "            results[0]['ood_mse'] = ood_mse",
+            "    except Exception as e:",
+            "        print(f'  OOD evaluation failed: {e}')",
+            "else:",
+            "    print('\\nNo OOD data file found. Skipping OOD evaluation.')",
+            "",
+        ]
 
-    print("Rank " + str(i+1) + ":")
-    print("  Expression: " + expr_s)
-    print("  MSE: " + str(loss_v))
-    print("  Complexity: " + str(complexity_v))
-    print("-" * 30)
+        # JSON output block
+        lines += [
+            '# Machine-readable output',
+            'print("===EVO_PYSR_RESULTS_JSON_BEGIN===")',
+            'print(json.dumps(results, ensure_ascii=False))',
+            'print("===EVO_PYSR_RESULTS_JSON_END===")',
+        ]
 
-    results.append({
-        "rank": i + 1,
-        "equation": expr_s,
-        "mse": loss_v,
-        "complexity": complexity_v,
-    })
-
-print("===EVO_PYSR_RESULTS_JSON_BEGIN===")
-print(json.dumps(results, ensure_ascii=False))
-print("===EVO_PYSR_RESULTS_JSON_END===")
-"""
-        # 替换占位符（注意：长的字符串要先替换，避免子字符串冲突）
-        code = code.replace("VARIABLE_NAMES_PLACEHOLDER", json.dumps(var_names))
-        code = code.replace("Y_COL_PLACEHOLDER", json.dumps(params.y))
-        code = code.replace("EXPRESSIONS_PLACEHOLDER", json.dumps(expressions))
-        code = code.replace("COMBINE_PLACEHOLDER", json.dumps(combine))
-        code = code.replace("NITERATIONS_PLACEHOLDER", str(params.niterations))
-        code = code.replace("MAX_EVALS_PLACEHOLDER", str(params.max_evals))
-        code = code.replace("BINARY_OPS_PLACEHOLDER", binary_ops_json)
-        code = code.replace("UNARY_OPS_PLACEHOLDER", unary_ops_json)
-
-        return code
+        return "\n".join(lines) + "\n"

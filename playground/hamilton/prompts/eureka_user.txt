@@ -13,9 +13,10 @@
 - experiment.json
 - insight.md（追加）
 - analysis.md
+- plan.md（研究计划 — 读取了解进度，可更新 Strategy Queue）
 
 ## 当前最佳表达式（Current Best）
-- `insight.md` 顶部包含一个“Current Best（auto-updated）”区块：它是当前系统认为最可信的表达式。
+- `insight.md` 顶部包含一个"Current Best（auto-updated）"区块：它是当前系统认为最可信的表达式。
 - 你本轮要做的关键决策之一：是否更新 Current Best（`update_best`）。
 
 ## 可复用工具库（推荐，非必须）
@@ -24,8 +25,10 @@
 
 ## 本轮职责（简化）
 - 读取 `experiment.json` 本轮结果（`rounds[{input_data[round]}]`）和当前 `analysis.md` 历史。
+- 读取 `plan.md` 了解 Hamilton 的策略和进度。
 - 在 `data.csv` 上做一次基础误差/残差评估（最小但可复现）。
 - 写 `insight.md`：本轮结论 + 是否更新 Current Best + 下一轮建议（可执行、可验证）。
+- 如果有建议，更新 `plan.md` 的 Strategy Queue 部分。
 - 不要求固定模板化步骤，重点是有结论、有证据、可复现。
 
 ## 输出边界
@@ -51,4 +54,13 @@ python3 history/round{input_data[round]}/scripts/round{input_data[round]}_residu
 3) 可选：生成基础报告块（你再补充决策与结构化信号）
 ```bash
 python3 skills/eurekatool/scripts/round_report.py --round {input_data[round]} --recompute
+```
+
+4) 更新 plan.md 的 Strategy Queue
+```bash
+cat >> plan.md <<'EOF'
+
+### Eureka Round {input_data[round]} Recommendations
+- ...
+EOF
 ```

@@ -50,8 +50,6 @@ agents:
     prompt_format_kwargs:
       usage: "workspace/tools/ToolUsage.md"
 
-  # Eureka Agent - 结果分析，生成insight.md
-  # 可以写代码、残差分析、偏导数分析、物理含义思考
   eureka:
     llm: "openai"
     max_turns: 80
@@ -93,7 +91,6 @@ session:
     timeout: 300
     gpu_devices: null
     cpu_devices: null
-    # 将可复用工具映射进每次 run 的 workspace，方便 Eureka 在不切换目录的前提下维护工具。
     symlinks:
       "evomaster/skills/eurekatool": "skills/eurekatool"
 
@@ -101,7 +98,6 @@ session:
 # 实验记录配置
 # ============================================
 experiment:
-  # 实验记录保存路径
   record_dir: "./playground/hamilton/records"
 
   # 最大迭代轮数

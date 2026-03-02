@@ -250,6 +250,7 @@ class HamiltonPlayground(BasePlayground):
         创建:
         - analysis.md: 分析历史（初始包含任务描述）
         - insight.md: 靠谱发现（初始为空）
+        - plan.md: 研究计划（Evo Protocol）
         """
         workspace = self.workspace_dir
         if not workspace:
@@ -294,6 +295,12 @@ class HamiltonPlayground(BasePlayground):
                 f.write("<!-- EVO_CURRENT_BEST_END -->\n\n")
             self.logger.info(f"Created {insight_file}")
 
+        # plan.md - 研究计划（Evo Protocol）
+        plan_file = workspace / "plan.md"
+        if not plan_file.exists():
+            self._create_plan_file(plan_file, task_description)
+            self.logger.info(f"Created {plan_file}")
+
         # skills/ - optional import convenience (avoid relying on namespace package semantics)
         skills_dir = workspace / "skills"
         eurekatool_dir = skills_dir / "eurekatool"
@@ -302,6 +309,49 @@ class HamiltonPlayground(BasePlayground):
             skills_init = skills_dir / "__init__.py"
             if not skills_init.exists():
                 skills_init.write_text("", encoding="utf-8")
+
+    def _create_plan_file(self, plan_file: Path, task_description: str):
+        """创建 plan.md 研究计划文件
+
+        优先使用 evo-protocol skill 的模板；若不可用则使用内置模板。
+        """
+        # Try to load template from evo-protocol skill
+        template_path = project_root / "evomaster" / "skills" / "evo-protocol" / "references" / "plan_template.md"
+        if template_path.exists():
+            try:
+                template = template_path.read_text(encoding="utf-8")
+                plan_content = template.replace("{task_description}", task_description)
+                plan_file.write_text(plan_content, encoding="utf-8")
+                return
+            except Exception as e:
+                self.logger.warning(f"Failed to load plan template from evo-protocol skill: {e}")
+
+        # Fallback: inline template
+        plan_content = f"""# Research Plan
+
+## Task
+{task_description}
+
+## Data Overview
+(Fill after first-round EDA: variable list, basic statistics, initial observations)
+
+## Current Hypotheses
+1. TBD
+
+## Confirmed Knowledge
+- Relevant variables: TBD
+- Eliminated variables: TBD
+- Best equation: none
+- Best MSE: unknown
+
+## Strategy Queue
+1. First-round: EDA + baseline PySR run
+
+## Failed Approaches
+| Round | Strategy | Variables | Template/Params | MSE | Why Failed |
+|-------|----------|-----------|-----------------|-----|------------|
+"""
+        plan_file.write_text(plan_content, encoding="utf-8")
 
     def _summarize_trajectory(self, trajectory) -> dict:
         """提取轨迹的轻量摘要（避免 experiment_record 保存巨大对象）。"""

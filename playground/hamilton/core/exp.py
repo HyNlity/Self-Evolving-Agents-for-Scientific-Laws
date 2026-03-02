@@ -110,6 +110,9 @@ class RoundExp(BaseExp):
         eureka_signal = self._parse_eureka_signal(eureka_result, eureka_trajectory)
         self._maybe_update_current_best(eureka_signal)
 
+        # 将 Eureka 的建议同步到 plan.md
+        self._sync_eureka_to_plan(eureka_signal)
+
         # 提取 insight.md 内容
         insight_content = self._read_insight()
 
@@ -382,6 +385,60 @@ class RoundExp(BaseExp):
 
         new_text = self._replace_block(text, self._CURRENT_BEST_BEGIN, self._CURRENT_BEST_END, block)
         insight_file.write_text(new_text, encoding="utf-8")
+
+    def _sync_eureka_to_plan(self, signal: dict) -> None:
+        """将 Eureka 的建议同步到 plan.md"""
+        if not self.run_dir:
+            return
+        plan_file = self.run_dir / "plan.md"
+        if not plan_file.exists():
+            return
+
+        if not isinstance(signal, dict):
+            return
+
+        next_steps = signal.get("next_round_plan", [])
+        best_eq = signal.get("best_equation", "")
+        best_mse = signal.get("best_mse")
+
+        updates = []
+
+        # 更新 Confirmed Knowledge 中的 best equation/MSE
+        if signal.get("update_best") and best_eq:
+            mse_str = f"{best_mse}" if best_mse is not None else "unknown"
+            updates.append(
+                f"\n> [Eureka Round {self.round_num}] Updated best: `{best_eq}` (MSE: {mse_str})\n"
+            )
+
+        # 追加建议到 Strategy Queue
+        if next_steps:
+            advice = f"\n### Eureka Round {self.round_num} Recommendations\n"
+            for step in next_steps:
+                advice += f"- {step}\n"
+            updates.append(advice)
+
+        if not updates:
+            return
+
+        try:
+            text = plan_file.read_text(encoding="utf-8")
+        except Exception:
+            return
+
+        marker = "## Strategy Queue"
+        if marker in text:
+            pos = text.find(marker)
+            next_section = text.find("\n## ", pos + len(marker))
+            insert_pos = next_section if next_section != -1 else len(text)
+            text = text[:insert_pos] + "\n".join(updates) + "\n" + text[insert_pos:]
+        else:
+            text += f"\n{marker}\n" + "\n".join(updates)
+
+        try:
+            plan_file.write_text(text, encoding="utf-8")
+            self.logger.info(f"Synced Eureka recommendations to plan.md (Round {self.round_num})")
+        except Exception as e:
+            self.logger.warning(f"Failed to sync Eureka to plan.md: {e}")
 
     def _ensure_current_best_block(self, insight_file: Path) -> None:
         """Ensure insight.md has a Current Best block delimited by markers."""
