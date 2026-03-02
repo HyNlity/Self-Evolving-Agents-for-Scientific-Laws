@@ -1,5 +1,5 @@
 # Hamilton Playground 配置文件
-# 符号回归Agent - 过完备变量下的方程发现
+# 通用符号回归 / ODE 发现 Agent
 
 # ============================================
 # LLM 配置
@@ -33,7 +33,6 @@ llm:
 # Agent 配置
 # ============================================
 agents:
-  # Hamilton Agent - 主分析Agent，变量分析、PySR调用、维护 analysis.md
   hamilton:
     llm: "openai"
     max_turns: 100
@@ -47,8 +46,6 @@ agents:
 
     system_prompt_file: "prompts/hamilton_system.txt"
     user_prompt_file: "prompts/hamilton_user.txt"
-    prompt_format_kwargs:
-      usage: "workspace/tools/ToolUsage.md"
 
   eureka:
     llm: "openai"
@@ -63,11 +60,9 @@ agents:
 
     system_prompt_file: "prompts/eureka_system.txt"
     user_prompt_file: "prompts/eureka_user.txt"
-    prompt_format_kwargs:
-      usage: "workspace/tools/ToolUsage.md"
 
 # ============================================
-# Skills 配置（用于 use_skill / Operator Skills）
+# Skills 配置
 # ============================================
 skills:
   enabled: true
@@ -78,7 +73,7 @@ skills:
 # ============================================
 mcp:
   config_file: "../mcp_config.json"
-  enabled: True
+  enabled: true
 
 # ============================================
 # Session 配置
@@ -95,26 +90,20 @@ session:
       "evomaster/skills/eurekatool": "skills/eurekatool"
 
 # ============================================
-# 实验记录配置
+# 实验配置
 # ============================================
 experiment:
   record_dir: "./playground/hamilton/records"
-
-  # 最大迭代轮数
   max_rounds: 5
-
-  # PySR 配置
-  pysr:
-    # 默认参数
-    niterations: 100
-    max_evals: 100000
-    timeout_in_seconds: 300
-    # operators: ["+", "-", "*", "/", "sin", "cos", "exp", "log", "^2", "^3"]
+  # PySR 参数（niterations, maxsize, parsimony 等）
+  # 完全由 Agent 通过 tool params 决定，不在此配置
 
 # ============================================
-# 系统提示词配置
+# LLM 输出 & 工具调用日志
 # ============================================
-system_prompt_file: "../../../playground/hamilton/prompts/hamilton_system.txt"
+llm_output:
+  show_in_console: true
+  log_to_file: true
 
 # ============================================
 # 日志配置
@@ -122,14 +111,11 @@ system_prompt_file: "../../../playground/hamilton/prompts/hamilton_system.txt"
 logging:
   level: "INFO"
   format: "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
-  file: null
   console: true
-  log_path: "./logs/hamilton.log"
+  # 日志文件会写入 run 目录下的 logs/
 
 # ============================================
-# 其他配置
+# 项目配置
 # ============================================
 project_root: "."
-workspace: "./workspace"
-results_dir: "./results"
 debug: false

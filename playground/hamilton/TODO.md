@@ -124,6 +124,8 @@ workspace/
 - [x] plan.md 机制（自动创建 + prompt 引导）
 - [x] Eureka 协作升级（plan.md 双向同步）
 - [x] 通用化改造（prompts 通用化 + 数据自主 + 动力学支持）
+- [x] Config 清理（移除旧 PySR 硬编码参数、死配置项）
+- [x] 工具调用日志（llm_output.log_to_file + show_in_console 启用）
 
 ## TODO
 
