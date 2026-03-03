@@ -7,22 +7,11 @@
 llm:
   openai:
     provider: "openai"
-    model: "${GPT_CHAT_MODEL}"
-    api_key: "${OPENAI_API_KEY}"
-    base_url: "${GPT_BASE_URL}"
+    model: "gpt-5"
+    api_key: "sk-1HEDl1RNtaMQV7TDet0FUA"
+    base_url: "https://llm.dp.tech"
     temperature: 0.7
-    max_tokens: 16384
-    timeout: 120
-    max_retries: 3
-    retry_delay: 1.0
-
-  anthropic:
-    provider: "anthropic"
-    model: "claude-haiku-4-5-20251001"
-    api_key: "${ANTHROPIC_API_KEY}"
-    base_url: "${ANTHROPIC_BASE_URL}"
-    temperature: 0.7
-    max_tokens: 16384
+    max_tokens: 128000
     timeout: 120
     max_retries: 3
     retry_delay: 1.0
@@ -30,16 +19,16 @@ llm:
   default: "openai"
 
 # ============================================
-# Agent 配置
+# Agent 配置（新版 per-agent 格式）
 # ============================================
 agents:
   hamilton:
     llm: "openai"
-    max_turns: 100
+    max_turns: 120
     enable_tools: true
 
     context:
-      max_tokens: 128000
+      max_tokens: 200000
       truncation_strategy: "latest_half"
       preserve_system_messages: true
       preserve_recent_turns: 10
@@ -47,33 +36,14 @@ agents:
     system_prompt_file: "prompts/hamilton_system.txt"
     user_prompt_file: "prompts/hamilton_user.txt"
 
-  eureka:
-    llm: "openai"
-    max_turns: 80
-    enable_tools: true
+    # Per-agent skills（只加载需要的，不污染 prompt）
+    skills:
+      - pysr
+      - evo-protocol
 
-    context:
-      max_tokens: 128000
-      truncation_strategy: "latest_half"
-      preserve_system_messages: true
-      preserve_recent_turns: 10
-
-    system_prompt_file: "prompts/eureka_system.txt"
-    user_prompt_file: "prompts/eureka_user.txt"
-
-# ============================================
-# Skills 配置
-# ============================================
-skills:
-  enabled: true
-  skills_root: "evomaster/skills"
-
-# ============================================
-# MCP 配置
-# ============================================
-mcp:
-  config_file: "../mcp_config.json"
-  enabled: true
+    # Per-agent tools
+    tools:
+      builtin: ["*"]
 
 # ============================================
 # Session 配置
@@ -83,20 +53,18 @@ session:
 
   local:
     working_dir: "./playground/hamilton/workspace"
-    timeout: 300
+    timeout: 21600
     gpu_devices: null
     cpu_devices: null
     symlinks:
-      "evomaster/skills/eurekatool": "skills/eurekatool"
+      "evomaster/skills/pysr": "skills/pysr"
 
 # ============================================
 # 实验配置
 # ============================================
 experiment:
   record_dir: "./playground/hamilton/records"
-  max_rounds: 5
-  # PySR 参数（niterations, maxsize, parsimony 等）
-  # 完全由 Agent 通过 tool params 决定，不在此配置
+  max_rounds: 3
 
 # ============================================
 # LLM 输出 & 工具调用日志
@@ -112,7 +80,6 @@ logging:
   level: "INFO"
   format: "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
   console: true
-  # 日志文件会写入 run 目录下的 logs/
 
 # ============================================
 # 项目配置

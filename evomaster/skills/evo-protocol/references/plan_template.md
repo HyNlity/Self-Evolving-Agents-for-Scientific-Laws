@@ -1,36 +1,41 @@
-# Research Plan
+# 研究计划
 
-## Task
+## 任务
 {task_description}
 
-## Data Overview
-(Fill after first-round EDA: variable list, basic statistics, initial observations)
+<!-- EVO_CURRENT_BEST_BEGIN -->
+## 当前最优
+- 轮次：0
+- 方程：无
+- MSE：未知
+- 更新时间：待定
+<!-- EVO_CURRENT_BEST_END -->
 
-- Columns: TBD
-- Target variable(s): TBD
-- Time column: TBD (if present, consider dynamics)
-- Data size: TBD rows x TBD columns
-- Missing values: TBD
-- Notable patterns: TBD
+## 数据概览
+（首轮 EDA 后填写：变量列表、基本统计、初步观察）
 
-## Current Hypotheses
-(Agent fills based on data exploration -- what equations/relationships might hold?)
+- 列：待定
+- 目标变量：待定
+- 时间列：待定（如有，考虑动力学）
+- 数据规模：待定行 × 待定列
+- 缺失值：待定
+- 显著模式：待定
 
-1. TBD
+## 当前假设
+（Agent 基于数据探索填写——可能存在什么方程/关系？）
 
-## Confirmed Knowledge
-- Relevant variables: TBD
-- Eliminated variables: TBD
-- Best equation: none
-- Best MSE: unknown
-- MSE source: unknown
-- Key relationships discovered: none
+1. 待定
 
-## Strategy Queue
-(What to try next -- updated by both Hamilton and Eureka)
+## 已确认知识
+- 相关变量：待定
+- 排除变量：待定
+- 已发现的关键关系：无
 
-1. First-round: EDA + baseline PySR run with all variables
+## 策略队列
+<!-- EVO_STRATEGY_QUEUE_BEGIN -->
+（Agent 自行制定）
+<!-- EVO_STRATEGY_QUEUE_END -->
 
-## Failed Approaches
-| Round | Strategy | Variables | Template/Params | MSE | Why Failed |
-|-------|----------|-----------|-----------------|-----|------------|
+## 失败方法
+| 轮次 | 策略 | 变量 | 模板/参数 | MSE | 失败原因 |
+|------|------|------|-----------|-----|----------|

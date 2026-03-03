@@ -3,24 +3,29 @@
 符号回归Agent - 过完备变量下的方程发现
 
 模式：
-- RoundExp: 单轮执行单元
+- RoundExp: 单轮执行单元（单 Agent 完成发现→验证→提炼闭环）
 - Playground: 循环编排，多次调用RoundExp
+
+HCC 分层记忆：
+- L1 (execution_trace.md): 每轮重置的工作记忆
+- L2 (plan.md, findings.md): 只增不减的知识积累
 """
 
 import json
 import logging
+import os
 import shutil
 import sys
 from pathlib import Path
 from datetime import datetime
 
 # 确保可以导入evomaster模块
-project_root = Path(__file__).parent.parent.parent.parent
-if str(project_root) not in sys.path:
-    sys.path.insert(0, str(project_root))
+_module_root = Path(__file__).resolve().parent.parent.parent.parent
+if str(_module_root) not in sys.path:
+    sys.path.insert(0, str(_module_root))
 
 from evomaster.core import BasePlayground, register_playground
-from evomaster.skills import SkillRegistry
+from .constants import CURRENT_BEST_BEGIN, CURRENT_BEST_END, STRATEGY_QUEUE_BEGIN, STRATEGY_QUEUE_END
 
 from .exp import RoundExp
 
@@ -30,13 +35,14 @@ class HamiltonPlayground(BasePlayground):
     """Hamilton Playground - 符号回归Agent
 
     编排多轮迭代：
-    1. 创建 HamiltonAgent 和 Eureka Agent
+    1. 创建单个 Agent（发现 + 验证 + 提炼）
     2. 循环调用 RoundExp (每轮)
     3. 记录实验结果
 
-    每轮流程：
-    - HamiltonAgent: 读取 analysis.md, 写代码分析 + PySR, 维护 analysis.md
-    - Eureka Agent: 读取 analysis.md + PySR结果, 写入 insight.md
+    每轮流程（HCC）：
+    - 系统: 重置 execution_trace.md (L1)
+    - Agent: 读 L2 → 发现方程 → 验证 → 提炼到 L2 → finish(satisfied)
+    - 系统: 解析 signal，决定继续/停止
 
     使用方式：
         python run.py --agent hamilton --task "发现数据中的方程"
@@ -44,16 +50,15 @@ class HamiltonPlayground(BasePlayground):
 
     def __init__(self, config_dir: Path = None, config_path: Path = None):
         """初始化 Hamilton Playground"""
+        self._project_root = Path(__file__).resolve().parent.parent.parent.parent
+
         if config_path is None and config_dir is None:
-            config_dir = Path(__file__).parent.parent.parent.parent / "configs" / "hamilton"
+            config_dir = self._project_root / "configs" / "hamilton"
 
         super().__init__(config_dir=config_dir, config_path=config_path)
         self.logger = logging.getLogger(self.__class__.__name__)
 
         # Agents
-        self.hamilton_agent = None
-        self.eureka_agent = None
-        self.skill_registry: SkillRegistry | None = None
         self.workspace_dir: Path | None = None
 
         # 实验记录
@@ -64,65 +69,105 @@ class HamiltonPlayground(BasePlayground):
         }
 
     def set_run_dir(self, run_dir: str | Path, task_id: str | None = None) -> None:
-        """设置 run 目录并为 Hamilton 初始化 workspace 模板。
+        """设置 run 目录。
 
-        Hamilton 的 prompts 依赖 workspace 内存在一些“模板文件/目录”（如 tools/），同时数据集通常以
-        `data.csv` 的形式放在 workspace 根目录（可选还有 `data_ood.csv`）。`run.py` 会为每次任务创建全新 workspace，因此这里需要：
-        - 将 `playground/hamilton/workspace/` 中的模板内容拷贝到新 workspace（不覆盖已存在文件）
-        - 若模板 workspace 中存在 `data.csv` / `data_ood.csv`，则一并拷贝（便于用户在模板目录放置固定数据集）
+        Workspace seeding and file initialization are deferred to _init_workspace()
+        which is called at run() time when the task description is available.
         """
         super().set_run_dir(run_dir, task_id=task_id)
 
-        run_dir_path = Path(run_dir)
-        workspace_path = run_dir_path / "workspace"
-        if task_id:
-            workspace_path = run_dir_path / "workspaces" / task_id
+    def _init_workspace(self, task_description: str) -> None:
+        """Unified workspace initialization: seed template files + create runtime files.
 
-        self._seed_workspace(workspace_path)
+        Steps:
+        1. Copy tools/ template dir (if missing)
+        2. Copy data.csv / data_ood.csv from template (if missing)
+        3. Ensure skills/__init__.py for symlink compatibility
+        4. Create execution_trace.md / findings.md / plan.md (if missing)
+        5. Validate data.csv exists
+        """
+        workspace = self.workspace_dir
+        if not workspace:
+            return
 
-    def _seed_workspace(self, workspace_path: Path) -> None:
-        """将 Hamilton workspace 模板内容拷贝到目标 workspace（只在目标缺失时拷贝）。"""
-        try:
-            template_dir = project_root / "playground" / "hamilton" / "workspace"
-            if not template_dir.exists():
-                return
+        workspace.mkdir(parents=True, exist_ok=True)
 
-            workspace_path.mkdir(parents=True, exist_ok=True)
+        # --- Phase 1: Seed from template ---
+        template_dir = self._project_root / "playground" / "hamilton" / "workspace"
+        if template_dir.exists():
+            try:
+                # task.md
+                src_task = template_dir / "task.md"
+                dst_task = workspace / "task.md"
+                if src_task.exists() and not dst_task.exists():
+                    shutil.copy2(src_task, dst_task)
+                    self.logger.info("Seeded task.md into workspace")
 
-            # 1) tools/ 目录（Eureka 提示词中的可复用函数库入口）
-            src_tools = template_dir / "tools"
-            dst_tools = workspace_path / "tools"
-            if src_tools.exists() and src_tools.is_dir() and not dst_tools.exists():
-                shutil.copytree(src_tools, dst_tools)
-                self.logger.info(f"Seeded tools/ into workspace: {dst_tools}")
+                # data files → input/ subdirectory
+                input_dir = workspace / "input"
+                input_dir.mkdir(parents=True, exist_ok=True)
+                src_input = template_dir / "input"
+                csv_source = src_input if src_input.exists() else template_dir
+                for src in csv_source.glob("*.csv"):
+                    dst = input_dir / src.name
+                    if not dst.exists():
+                        if src.is_symlink():
+                            link_target = os.readlink(src)
+                            os.symlink(link_target, dst)
+                        else:
+                            shutil.copy2(src, dst)
+                        self.logger.info(f"Seeded input/{src.name}")
+            except Exception as e:
+                self.logger.warning(f"Failed to seed Hamilton workspace template: {e}", exc_info=True)
 
-            # 2) 数据文件（可选：允许用户把固定数据集放在模板目录以便自动带入每次 run）
-            src_data = template_dir / "data.csv"
-            dst_data = workspace_path / "data.csv"
-            if src_data.exists() and src_data.is_file() and not dst_data.exists():
-                shutil.copy2(src_data, dst_data)
-                self.logger.info(f"Seeded data.csv into workspace: {dst_data}")
+        # --- Phase 3: Create runtime files ---
+        # input/ must have at least one CSV
+        input_dir = workspace / "input"
+        csv_files = list(input_dir.glob("*.csv")) if input_dir.exists() else []
+        if not csv_files:
+            raise FileNotFoundError(
+                f"No CSV data files found in: {input_dir}\n"
+                "Hamilton expects data CSVs in 'input/' subdirectory.\n"
+                "Tip: put your CSVs in 'playground/hamilton/workspace/input/' so they will be auto-seeded."
+            )
 
-            src_data_ood = template_dir / "data_ood.csv"
-            dst_data_ood = workspace_path / "data_ood.csv"
-            if src_data_ood.exists() and src_data_ood.is_file() and not dst_data_ood.exists():
-                shutil.copy2(src_data_ood, dst_data_ood)
-                self.logger.info(f"Seeded data_ood.csv into workspace: {dst_data_ood}")
+        # execution_trace.md (L1 — will be reset each round, create initial file)
+        trace_file = workspace / "execution_trace.md"
+        if not trace_file.exists():
+            trace_file.write_text(
+                "# 执行日志\n\n（每轮开始时自动重置）\n",
+                encoding="utf-8",
+            )
+            self.logger.info(f"Created {trace_file}")
 
-        except Exception as e:
-            # seed 失败不应阻断运行（但会导致后续缺文件时显式报错）
-            self.logger.warning(f"Failed to seed Hamilton workspace template: {e}", exc_info=True)
+        # findings.md (L2 — knowledge accumulation, append-only)
+        findings_file = workspace / "findings.md"
+        if not findings_file.exists():
+            findings_file.write_text(
+                "# 研究发现\n\n"
+                "## 关键洞察\n"
+                "（经验证的数据观察和物理关系）\n\n"
+                "## 实验结果\n"
+                "| 轮次 | 方法 | 方程 | MSE (训练) | MSE (OOD) | 结论 |\n"
+                "|------|------|------|-----------|-----------|------|\n\n"
+                "## 最优方程演化\n"
+                "（记录最优方程在各轮中的变化过程）\n",
+                encoding="utf-8",
+            )
+            self.logger.info(f"Created {findings_file}")
 
-    def _setup_tools(self, skill_registry=None) -> None:
-        """Hamilton toolset = default tools + PySRTool."""
-        super()._setup_tools(skill_registry)
-        try:
-            from ..tools.pysr_tool import PySRTool
+        # lib/ (L2 — reusable scripts, persists across rounds)
+        lib_dir = workspace / "lib"
+        lib_dir.mkdir(parents=True, exist_ok=True)
+        lib_readme = lib_dir / "README.md"
+        if not lib_readme.exists():
+            lib_readme.write_text("# lib/ 可复用脚本索引\n\n（每次新增脚本时更新）\n", encoding="utf-8")
 
-            if self.tools is not None:
-                self.tools.register(PySRTool())
-        except Exception as e:
-            self.logger.warning(f"PySRTool not loaded: {e}")
+        # plan.md (L2 — strategic plan with Current Best markers)
+        plan_file = workspace / "plan.md"
+        if not plan_file.exists():
+            self._create_plan_file(plan_file, task_description)
+            self.logger.info(f"Created {plan_file}")
 
     def setup(self) -> None:
         """初始化组件（复用 BasePlayground.setup）"""
@@ -135,25 +180,8 @@ class HamiltonPlayground(BasePlayground):
             except Exception:
                 self.workspace_dir = None
 
-        self.hamilton_agent = self.agents.get("hamilton")
-        self.eureka_agent = self.agents.get("eureka")
-        if self.hamilton_agent is None or self.eureka_agent is None:
-            raise ValueError("Hamilton requires agents.hamilton and agents.eureka in config.yaml")
-
-        # Scope Eureka tools to exclude PySR (Eureka should analyze results, not run regression).
-        try:
-            from evomaster.agent.tools.base import ToolRegistry
-
-            base_tools = getattr(self, "tools", None)
-            if base_tools is not None:
-                scoped = ToolRegistry()
-                for tool in base_tools.get_all_tools():
-                    if getattr(tool, "name", None) == "pysr_symbolic_regression":
-                        continue
-                    scoped.register(tool)
-                self.eureka_agent.tools = scoped
-        except Exception as e:
-            self.logger.warning(f"Failed to scope Eureka tools: {e}")
+        if self.agent is None:
+            raise ValueError("Hamilton requires 'agents.hamilton' section in config.yaml")
 
         self.logger.info("Hamilton playground setup complete")
 
@@ -185,8 +213,8 @@ class HamiltonPlayground(BasePlayground):
             self.logger.info(f"Starting Hamilton experiment with {max_rounds} max rounds")
             self.logger.info(f"Task: {task_description}")
 
-            # 初始化workspace文件
-            self._init_workspace_files(task_description)
+            # 初始化workspace
+            self._init_workspace(task_description)
 
             # 循环执行多轮
             for round_num in range(1, max_rounds + 1):
@@ -196,8 +224,7 @@ class HamiltonPlayground(BasePlayground):
 
                 # 创建单轮exp
                 exp = RoundExp(
-                    hamilton_agent=self.hamilton_agent,
-                    eureka_agent=self.eureka_agent,
+                    agent=self.agent,
                     config=self.config,
                     round_num=round_num,
                 )
@@ -206,22 +233,20 @@ class HamiltonPlayground(BasePlayground):
 
                 # 执行单轮
                 result = exp.run(task_description)
-                eureka_signal = result.get("eureka_signal") or {}
+                signal = result.get("signal") or {}
 
                 # 记录结果（确保可 JSON 序列化；完整轨迹已由 trajectories/trajectory.json 持久化）
                 round_record = {
                     "round": result.get("round", round_num),
-                    "hamilton_result": result.get("hamilton_result", ""),
-                    "eureka_result": result.get("eureka_result", ""),
-                    "insight": result.get("insight", ""),
-                    "eureka_signal": eureka_signal,
-                    "hamilton": self._summarize_trajectory(result.get("hamilton_trajectory")),
-                    "eureka": self._summarize_trajectory(result.get("eureka_trajectory")),
+                    "agent_result": result.get("agent_result", ""),
+                    "findings": result.get("findings", ""),
+                    "signal": signal,
+                    "trajectory": self._summarize_trajectory(result.get("trajectory")),
                 }
                 self.experiment_record["rounds"].append(round_record)
 
                 # 检查是否完成
-                if self._is_satisfied(eureka_signal):
+                if self._is_satisfied(signal):
                     self.logger.info("Found satisfactory result!")
                     break
 
@@ -244,79 +269,13 @@ class HamiltonPlayground(BasePlayground):
         finally:
             self.cleanup()
 
-    def _init_workspace_files(self, task_description: str):
-        """初始化workspace文件
-
-        创建:
-        - analysis.md: 分析历史（初始包含任务描述）
-        - insight.md: 靠谱发现（初始为空）
-        - plan.md: 研究计划（Evo Protocol）
-        """
-        workspace = self.workspace_dir
-        if not workspace:
-            return
-
-        # data.csv - 必需输入
-        data_file = workspace / "data.csv"
-        if not data_file.exists():
-            raise FileNotFoundError(
-                f"Missing required input dataset: {data_file}\n"
-                "Hamilton expects a CSV named 'data.csv' in the workspace root.\n"
-                "Tip: put your data.csv in 'playground/hamilton/workspace/data.csv' so it will be auto-seeded into each new run workspace."
-            )
-
-        # data_ood.csv - 可选输入
-        data_ood_file = workspace / "data_ood.csv"
-        if not data_ood_file.exists():
-            self.logger.warning(
-                "Optional OOD dataset not found: %s. "
-                "PySR default tool won't break, but OOD validation scripts should guard for its absence.",
-                data_ood_file
-            )
-
-        # analysis.md - 分析历史（初始写入任务描述）
-        analysis_file = workspace / "analysis.md"
-        if not analysis_file.exists():
-            with open(analysis_file, 'w', encoding='utf-8') as f:
-                f.write(f"# Data Analysis History\n\n## Task\n{task_description}\n\n")
-            self.logger.info(f"Created {analysis_file}")
-
-        # insight.md - 靠谱发现
-        insight_file = workspace / "insight.md"
-        if not insight_file.exists():
-            with open(insight_file, 'w', encoding='utf-8') as f:
-                f.write("# Insights\n\n")
-                f.write("<!-- EVO_CURRENT_BEST_BEGIN -->\n")
-                f.write("## Current Best (auto-updated)\n")
-                f.write("- Round: 0\n")
-                f.write("- Equation: none\n")
-                f.write("- MSE: unknown\n")
-                f.write(f"- UpdatedAt: {datetime.now().isoformat()}\n")
-                f.write("<!-- EVO_CURRENT_BEST_END -->\n\n")
-            self.logger.info(f"Created {insight_file}")
-
-        # plan.md - 研究计划（Evo Protocol）
-        plan_file = workspace / "plan.md"
-        if not plan_file.exists():
-            self._create_plan_file(plan_file, task_description)
-            self.logger.info(f"Created {plan_file}")
-
-        # skills/ - optional import convenience (avoid relying on namespace package semantics)
-        skills_dir = workspace / "skills"
-        eurekatool_dir = skills_dir / "eurekatool"
-        if eurekatool_dir.exists():
-            skills_dir.mkdir(parents=True, exist_ok=True)
-            skills_init = skills_dir / "__init__.py"
-            if not skills_init.exists():
-                skills_init.write_text("", encoding="utf-8")
-
     def _create_plan_file(self, plan_file: Path, task_description: str):
         """创建 plan.md 研究计划文件
 
         优先使用 evo-protocol skill 的模板；若不可用则使用内置模板。
         """
         # Try to load template from evo-protocol skill
-        template_path = project_root / "evomaster" / "skills" / "evo-protocol" / "references" / "plan_template.md"
+        template_path = self._project_root / "evomaster" / "skills" / "evo-protocol" / "references" / "plan_template.md"
         if template_path.exists():
             try:
                 template = template_path.read_text(encoding="utf-8")
@@ -326,30 +285,39 @@ class HamiltonPlayground(BasePlayground):
             except Exception as e:
                 self.logger.warning(f"Failed to load plan template from evo-protocol skill: {e}")
 
-        # Fallback: inline template
-        plan_content = f"""# Research Plan
+        # Fallback: inline template (includes Current Best markers)
+        plan_content = f"""# 研究计划
 
-## Task
+## 任务
 {task_description}
 
-## Data Overview
-(Fill after first-round EDA: variable list, basic statistics, initial observations)
+{CURRENT_BEST_BEGIN}
+## 当前最优
+- 轮次：0
+- 方程：无
+- MSE：未知
+- 更新时间：{datetime.now().isoformat()}
+{CURRENT_BEST_END}
 
-## Current Hypotheses
-1. TBD
+## 数据概览
+（首轮 EDA 后填写：变量列表、基本统计、初步观察）
 
-## Confirmed Knowledge
-- Relevant variables: TBD
-- Eliminated variables: TBD
-- Best equation: none
-- Best MSE: unknown
+## 当前假设
+1. 待定
 
-## Strategy Queue
-1. First-round: EDA + baseline PySR run
+## 已确认知识
+- 相关变量：待定
+- 排除变量：待定
+- 已发现的关键关系：无
 
-## Failed Approaches
-| Round | Strategy | Variables | Template/Params | MSE | Why Failed |
-|-------|----------|-----------|-----------------|-----|------------|
+## 策略队列
+{STRATEGY_QUEUE_BEGIN}
+（Agent 自行制定）
+{STRATEGY_QUEUE_END}
+
+## 失败方法
+| 轮次 | 策略 | 变量 | 模板/参数 | MSE | 失败原因 |
+|------|------|------|-----------|-----|----------|
 """
         plan_file.write_text(plan_content, encoding="utf-8")
 

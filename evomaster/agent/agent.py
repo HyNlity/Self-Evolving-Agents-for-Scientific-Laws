@@ -7,7 +7,6 @@ from __future__ import annotations
 
 import json
 import logging
-import os
 import sys
 import threading
 from abc import ABC, abstractmethod
@@ -26,6 +25,7 @@ from evomaster.utils.types import (
     ToolMessage,
     UserMessage,
 )
+from evomaster.utils.llm import build_multimodal_content
 
 if TYPE_CHECKING:
     from evomaster.utils import BaseLLM
@@ -63,8 +63,9 @@ class BaseAgent(ABC):
     _trajectory_file_path: Path | None = None
     _trajectory_file_lock = threading.Lock()
 
-    # Current exp info is stored thread-locally so parallel workloads do not overwrite each other.
-    _exp_info_local = threading.local()
+    # 类级别的当前exp信息（所有agent实例共享）
+    _current_exp_name: str | None = None
+    _current_exp_index: int | None = None
 
     def __init__(
         self,
@@ -76,18 +77,21 @@ class BaseAgent(ABC):
         output_config: dict[str, Any] | None = None,
         config_dir: Path | str | None = None,
         enable_tools: bool = True,
+        enabled_tool_names: list[str] | None = None,
     ):
         """初始化 Agent
 
         Args:
             llm: LLM 实例
             session: 环境会话，用于执行工具
-            tools: 工具注册中心（始终注册，但只有在 enable_tools=True 时才会在提示词中包含工具信息）
+            tools: 工具注册中心（始终注册所有工具，但只有启用的工具才会暴露给 LLM）
             config: Agent 配置
             skill_registry: Skills 注册中心（可选）
             output_config: 输出显示配置
             config_dir: 配置目录路径，用于加载提示词文件
             enable_tools: 是否在提示词中包含工具信息（默认 True）。如果为 False，工具仍然注册但不会出现在提示词中
+            enabled_tool_names: 启用的工具名称列表（可选）。None 或 ["*"] 表示所有已注册工具都启用。
+                仅影响暴露给 LLM 的工具列表，不影响代码中手动调用工具。
         """
         self.llm = llm
         self.session = session
@@ -95,6 +99,7 @@ class BaseAgent(ABC):
         self.config = config or AgentConfig()
         self.skill_registry = skill_registry
         self.enable_tools = enable_tools
+        self.enabled_tool_names = enabled_tool_names
 
         # 输出配置
         self.output_config = output_config or {}
@@ -197,11 +202,17 @@ class BaseAgent(ABC):
         self._initial_system_prompt = system_prompt
         self._initial_user_prompt = user_prompt
 
+        # 构建用户消息内容：如果任务包含图片，构建多模态内容
+        if task.images:
+            user_content = build_multimodal_content(user_prompt, task.images)
+        else:
+            user_content = user_prompt
+
         # 创建对话
         self.current_dialog = Dialog(
             messages=[
                 SystemMessage(content=system_prompt),
-                UserMessage(content=user_prompt),
+                UserMessage(content=user_content),
             ],
             tools=self._get_tool_specs(),
         )
@@ -383,8 +394,9 @@ class BaseAgent(ABC):
         """处理没有工具调用的情况"""
         # 添加用户消息提示继续
         prompt = (
-            "Please continue working on the task.\n"
-            "When you have completed the task, use the finish tool.\n"
+            "You just output text without calling any tool. "
+            "Every step must include a tool call.\n"
+            "If you have completed all phases, call the `finish` tool now with your summary as the `message` parameter.\n"
             "IMPORTANT: You should not ask for human help."
         )
         self.current_dialog.add_message(UserMessage(content=prompt))
@@ -392,15 +404,21 @@ class BaseAgent(ABC):
 
     def _get_tool_specs(self) -> list:
         """获取工具规格列表
-        
+
         只有在 enable_tools=True 时才返回工具规格列表。
         如果 enable_tools=False，返回空列表（工具仍然注册，但不会出现在提示词中）。
+        如果设置了 enabled_tool_names，则只返回启用的工具的规格。
         """
         if not self.enable_tools:
             return []
         if self.tools is None:
             return []
-        return self.tools.get_tool_specs()
+        all_specs = self.tools.get_tool_specs()
+        # 如果没有指定 enabled_tool_names 或者包含 "*"，返回所有工具
+        if self.enabled_tool_names is None or "*" in self.enabled_tool_names:
+            return all_specs
+        # 只返回启用的工具的规格
+        return [spec for spec in all_specs if spec.function.name in self.enabled_tool_names]
 
     def load_prompt_from_file(
         self,
@@ -589,7 +607,7 @@ class BaseAgent(ABC):
 
     @classmethod
     def set_exp_info(cls, exp_name: str, exp_index: int) -> None:
-        """设置当前exp信息（线程本地）
+        """设置当前exp信息（类级别，所有agent实例共享）
 
         在exp运行时调用，用于记录当前step属于哪个exp阶段和迭代。
 
@@ -597,11 +615,8 @@ class BaseAgent(ABC):
             exp_name: exp阶段名称（如 "Solver", "Critic", "Rewriter", "Selector"）
             exp_index: 迭代序号（如 0, 1, 2, 3, 4）
         """
-        setattr(cls._exp_info_local, "name", str(exp_name))
-        try:
-            setattr(cls._exp_info_local, "index", int(exp_index))
-        except Exception:
-            setattr(cls._exp_info_local, "index", None)
+        cls._current_exp_name = exp_name
+        cls._current_exp_index = exp_index
     
     def set_agent_name(self, name: str) -> None:
         """设置Agent名称（用于标识不同的agent）
@@ -637,146 +652,105 @@ class BaseAgent(ABC):
             return
 
         try:
-            # 构建新的轨迹条目
-            # 格式与现有轨迹格式保持一致，但保存的是每次LLM调用的信息
-            task_id = self.trajectory.task_id if self.trajectory else "unknown"
-            status = self.trajectory.status if self.trajectory else "running"
-
-            # 将dialog_for_query转换为字典格式
-            prompt_dict = dialog_for_query.model_dump() if hasattr(dialog_for_query, 'model_dump') else {
-                "messages": [
-                    {
-                        "role": msg.role.value if hasattr(msg.role, 'value') else str(msg.role),
-                        "content": msg.content if hasattr(msg, 'content') else str(msg)
-                    }
-                    for msg in dialog_for_query.messages
-                ],
-                "tools": dialog_for_query.tools if hasattr(dialog_for_query, 'tools') else []
-            }
-
-            # 从step_record中获取assistant_message
-            assistant_message = step_record.assistant_message
-
-            # 将assistant_message转换为字典格式
-            response_dict = assistant_message.model_dump() if hasattr(assistant_message, 'model_dump') else {
-                "role": assistant_message.role.value if hasattr(assistant_message.role, 'value') else str(assistant_message.role),
-                "content": assistant_message.content if hasattr(assistant_message, 'content') else "",
-                "tool_calls": [
-                    {
-                        "id": tc.id if hasattr(tc, 'id') else "",
-                        "function": {
-                            "name": tc.function.name if hasattr(tc.function, 'name') else "",
-                            "arguments": tc.function.arguments if hasattr(tc.function, 'arguments') else ""
-                        }
-                    }
-                    for tc in (assistant_message.tool_calls or [])
-                ] if hasattr(assistant_message, 'tool_calls') and assistant_message.tool_calls else []
-            }
-
-            # 将tool_responses转换为字典格式
-            tool_responses_list = []
-            for tr in step_record.tool_responses:
-                tr_dict = tr.model_dump() if hasattr(tr, 'model_dump') else {
-                    "role": "tool",
-                    "content": tr.content if hasattr(tr, 'content') else "",
-                    "tool_call_id": tr.tool_call_id if hasattr(tr, 'tool_call_id') else "",
-                    "name": tr.name if hasattr(tr, 'name') else ""
-                }
-                tool_responses_list.append(tr_dict)
-
-            exp_name = getattr(self._exp_info_local, "name", None)
-            exp_index = getattr(self._exp_info_local, "index", None)
-
-            # 构建轨迹条目，格式与现有轨迹格式保持一致
-            entry = {
-                "task_id": f"{task_id}_{self._agent_name or 'agent'}_step_{self._step_count}",
-                "exp_name": exp_name,      # exp阶段名称
-                "exp_index": exp_index,    # exp迭代序号
-                "status": status,
-                "steps": self._step_count,
-                "trajectory": {
-                    "task_id": task_id,
-                    "agent_name": self._agent_name or "unknown",
-                    "step": self._step_count,
-                    "dialogs": [prompt_dict],  # 保存本次调用的prompt
-                    "steps": [
-                        {
-                            "step_id": self._step_count,
-                            "assistant_message": response_dict,  # 保存本次调用的response
-                            "tool_responses": tool_responses_list,  # 保存工具响应
-                            "meta": {}
-                        }
-                    ],
-                    "start_time": None,
-                    "end_time": None,
-                    "status": status,
-                    "result": {
-                        "prompt": prompt_dict,
-                        "response": response_dict
-                    },
-                    "meta": {
-                        "agent_version": self.VERSION,
-                        "agent_name": self._agent_name or "unknown",
-                        "step": self._step_count
-                    }
-                }
-            }
-
-            entry_json = json.dumps(entry, ensure_ascii=False, indent=2, default=str)
-            entry_text = "\n".join("  " + line for line in entry_json.splitlines())
-            entry_bytes = entry_text.encode("utf-8")
-
-            path = self._trajectory_file_path
             with self._trajectory_file_lock:
-                # Fast path: append into an existing JSON array without loading the full file.
-                try:
-                    if not path.exists() or path.stat().st_size == 0:
-                        with open(path, "wb") as f:
-                            f.write(b"[\n")
-                            f.write(entry_bytes)
-                            f.write(b"\n]\n")
-                        return
-
-                    with open(path, "rb+") as f:
-                        f.seek(0, os.SEEK_END)
-                        file_size = int(f.tell() or 0)
-                        tail_size = min(file_size, 16 * 1024)
-                        f.seek(max(0, file_size - tail_size))
-                        tail = f.read(tail_size)
-
-                        idx = tail.rfind(b"]")
-                        if idx < 0:
-                            raise ValueError("trajectory file missing closing bracket")
-
-                        # Determine if the array already has elements by scanning back for previous non-ws byte.
-                        j = idx - 1
-                        while j >= 0 and tail[j] in b" \t\r\n":
-                            j -= 1
-                        prev = tail[j] if j >= 0 else None
-                        non_empty = (prev is not None) and (prev != ord("["))
-
-                        insert_pos = (file_size - tail_size) + idx
-
-                        f.seek(insert_pos)
-                        suffix = f.read()
-                        f.seek(insert_pos)
-                        f.write((b",\n" if non_empty else b"\n") + entry_bytes + b"\n")
-                        f.write(suffix)
-                        return
-                except Exception:
-                    # Fallback: load & rewrite (keeps robustness when trajectory.json is corrupted).
-                    existing_data: list[Any] = []
+                # 读取现有数据
+                existing_data = []
+                if self._trajectory_file_path.exists():
                     try:
-                        with open(path, "r", encoding="utf-8") as f:
-                            loaded = json.load(f)
-                        if isinstance(loaded, list):
-                            existing_data = loaded
-                    except Exception:
+                        with open(self._trajectory_file_path, 'r', encoding='utf-8') as f:
+                            existing_data = json.load(f)
+                    except (json.JSONDecodeError, FileNotFoundError):
+                        # 如果文件损坏或不存在，从空列表开始
                         existing_data = []
 
-                    existing_data.append(entry)
-                    with open(path, "w", encoding="utf-8") as f:
-                        json.dump(existing_data, f, indent=2, default=str, ensure_ascii=False)
+                # 构建新的轨迹条目
+                # 格式与现有轨迹格式保持一致，但保存的是每次LLM调用的信息
+                task_id = self.trajectory.task_id if self.trajectory else "unknown"
+                status = self.trajectory.status if self.trajectory else "running"
+
+                # 将dialog_for_query转换为字典格式
+                prompt_dict = dialog_for_query.model_dump() if hasattr(dialog_for_query, 'model_dump') else {
+                    "messages": [
+                        {
+                            "role": msg.role.value if hasattr(msg.role, 'value') else str(msg.role),
+                            "content": msg.content if hasattr(msg, 'content') else str(msg)
+                        }
+                        for msg in dialog_for_query.messages
+                    ],
+                    "tools": dialog_for_query.tools if hasattr(dialog_for_query, 'tools') else []
+                }
+
+                # 从step_record中获取assistant_message
+                assistant_message = step_record.assistant_message
+
+                # 将assistant_message转换为字典格式
+                response_dict = assistant_message.model_dump() if hasattr(assistant_message, 'model_dump') else {
+                    "role": assistant_message.role.value if hasattr(assistant_message.role, 'value') else str(assistant_message.role),
+                    "content": assistant_message.content if hasattr(assistant_message, 'content') else "",
+                    "tool_calls": [
+                        {
+                            "id": tc.id if hasattr(tc, 'id') else "",
+                            "function": {
+                                "name": tc.function.name if hasattr(tc.function, 'name') else "",
+                                "arguments": tc.function.arguments if hasattr(tc.function, 'arguments') else ""
+                            }
+                        }
+                        for tc in (assistant_message.tool_calls or [])
+                    ] if hasattr(assistant_message, 'tool_calls') and assistant_message.tool_calls else []
+                }
+
+                # 将tool_responses转换为字典格式
+                tool_responses_list = []
+                for tr in step_record.tool_responses:
+                    tr_dict = tr.model_dump() if hasattr(tr, 'model_dump') else {
+                        "role": "tool",
+                        "content": tr.content if hasattr(tr, 'content') else "",
+                        "tool_call_id": tr.tool_call_id if hasattr(tr, 'tool_call_id') else "",
+                        "name": tr.name if hasattr(tr, 'name') else ""
+                    }
+                    tool_responses_list.append(tr_dict)
+
+                # 构建轨迹条目，格式与现有轨迹格式保持一致
+                entry = {
+                    "task_id": f"{task_id}_{self._agent_name or 'agent'}_step_{self._step_count}",
+                    "exp_name": self._current_exp_name,      # exp阶段名称
+                    "exp_index": self._current_exp_index,    # exp迭代序号
+                    "status": status,
+                    "steps": self._step_count,
+                    "trajectory": {
+                        "task_id": task_id,
+                        "agent_name": self._agent_name or "unknown",
+                        "step": self._step_count,
+                        "dialogs": [prompt_dict],  # 保存本次调用的prompt
+                        "steps": [
+                            {
+                                "step_id": self._step_count,
+                                "assistant_message": response_dict,  # 保存本次调用的response
+                                "tool_responses": tool_responses_list,  # 保存工具响应
+                                "meta": {}
+                            }
+                        ],
+                        "start_time": None,
+                        "end_time": None,
+                        "status": status,
+                        "result": {
+                            "prompt": prompt_dict,
+                            "response": response_dict
+                        },
+                        "meta": {
+                            "agent_version": self.VERSION,
+                            "agent_name": self._agent_name or "unknown",
+                            "step": self._step_count
+                        }
+                    }
+                }
+
+                # 追加新条目
+                existing_data.append(entry)
+
+                # 写回文件
+                with open(self._trajectory_file_path, 'w', encoding='utf-8') as f:
+                    json.dump(existing_data, f, indent=2, default=str, ensure_ascii=False)
 
         except Exception as e:
             # 如果保存失败，只记录日志，不中断执行
@@ -822,6 +796,7 @@ class Agent(BaseAgent):
         output_config: dict[str, Any] | None = None,
         config_dir: Path | str | None = None,
         enable_tools: bool = True,
+        enabled_tool_names: list[str] | None = None,
     ):
         """初始化 Agent
 
@@ -837,8 +812,9 @@ class Agent(BaseAgent):
             output_config: 输出显示配置
             config_dir: 配置目录路径，用于加载提示词文件
             enable_tools: 是否在提示词中包含工具信息（默认 True）。如果为 False，工具仍然注册但不会出现在提示词中，Agent 将不会调用工具
+            enabled_tool_names: 启用的工具名称列表（可选）。None 或 ["*"] 表示所有已注册工具都启用。
         """
-        super().__init__(llm, session, tools, config, skill_registry, output_config, config_dir=config_dir, enable_tools=enable_tools)
+        super().__init__(llm, session, tools, config, skill_registry, output_config, config_dir=config_dir, enable_tools=enable_tools, enabled_tool_names=enabled_tool_names)
 
         # 存储提示词
         self._system_prompt: str | None = None
@@ -881,7 +857,7 @@ You have access to the following tools:
 You can use the 'use_skill' tool to:
 1. Get detailed information about a skill: action='get_info'
 2. Get reference documentation: action='get_reference'
-3. Run scripts from Operator skills: action='run_script'
+3. Run scripts from skills: action='run_script'
 """
 
         prompt += """
@@ -897,7 +873,11 @@ Always be careful with file operations and bash commands.
 
     def _get_system_prompt(self) -> str:
         """获取系统提示词，动态添加工作目录信息；若有 skill_registry 则自动注入 skills 信息"""
-        working_dir = self.session.config.workspace_path
+        # working_dir = self.session.config.workspace_path
+        working_dir = self.session.get_workspace_path()
+        # 如果没有启动并行和工作空间分离，那么get_workspace_path返回None，此时使用session.config.workspace_path
+        if working_dir is None:
+            working_dir = self.session.config.workspace_path
         # 将相对路径转换为绝对路径
         working_dir_abs = str(Path(working_dir).absolute())
         working_dir_info = f"\n\n重要提示：当前工作目录是 {working_dir_abs}。你必须在这个目录下进行所有操作，不能切换工作目录。所有文件操作、命令执行都必须在工作目录 {working_dir_abs} 下进行。"
@@ -911,7 +891,7 @@ Always be careful with file operations and bash commands.
 You can use the 'use_skill' tool to:
 1. Get detailed information about a skill: action='get_info'
 2. Get reference documentation: action='get_reference'
-3. Run scripts from Operator skills: action='run_script'
+3. Run scripts from skills: action='run_script'
 """
         return prompt
 

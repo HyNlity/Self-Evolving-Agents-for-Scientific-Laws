@@ -16,26 +16,24 @@ if TYPE_CHECKING:
 
 
 class FinishToolParams(BaseToolParams):
-    """Signals the completion of the current task or conversation.
+    """Signals the completion of the current round of work.
 
-    Use this tool when:
-    - You have successfully completed the user's requested task
-    - You cannot proceed further due to technical limitations or missing information
+    You MUST call this tool when you have finished all phases of the current round.
+    Do NOT output your summary as plain text — always use this tool.
 
-    The message should include:
-    - A clear summary of actions taken and their results
-    - Any next steps for the user
-    - Explanation if you're unable to complete the task
-    - Any follow-up questions if more information is needed
+    Call this tool regardless of whether the overall task is fully solved:
+    - task_completed="true": current round's objectives are met
+    - task_completed="false": current round is done but overall task needs more iterations
+    - task_completed="partial": current round partially completed
 
-    The task_completed field should be set to True if you believed you have completed the task, and False otherwise.
+    The message should include a summary of actions taken, results, and any signal blocks required by the protocol.
     """
-    
+
     name: ClassVar[str] = "finish"
 
-    message: str = Field(description="Final message to send to the user")
+    message: str = Field(description="Final message summarizing this round's work, including any required signal blocks")
     task_completed: Literal["true", "false", "partial"] = Field(
-        description="Whether you have completed the task."
+        description="Whether the current round's work is complete. Use 'false' if the overall task needs more iterations."
     )
 
 

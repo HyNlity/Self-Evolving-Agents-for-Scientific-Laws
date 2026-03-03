@@ -1,76 +1,76 @@
-# Evo Protocol: Complete Rules
+# 演化协议：完整规则
 
-## Philosophy
+## 理念
 
-Scientific discovery is iterative. Each experiment is an investment that should yield knowledge, whether it succeeds or fails. The Evo Protocol ensures that every iteration builds on previous ones and that the search space is explored efficiently.
+科学发现是迭代的。每次实验都是一次投资，无论成败都应产出知识。演化协议确保每次迭代都建立在之前的基础上，高效探索搜索空间。
 
-## The Core Loop
+## 核心循环
 
 ```
-1. READ plan.md (understand current state)
-2. HYPOTHESIZE (form testable prediction)
-3. EXPERIMENT (design + execute)
-4. RECORD (update plan.md with results)
-5. REFLECT (was the hypothesis confirmed? what did we learn?)
-6. ITERATE (back to step 1 with new knowledge)
+1. 阅读 plan.md（了解当前状态）
+2. 假设（形成可检验的预测）
+3. 实验（设计 + 执行）
+4. 记录（用结果更新 plan.md）
+5. 反思（假设是否被证实？学到了什么？）
+6. 迭代（回到第 1 步，带上新知识）
 ```
 
-## Attention Management
+## 注意力管理
 
-### Pre-Experiment Checklist
-Before running any PySR call or analysis script:
-- [ ] Read `plan.md` Confirmed Knowledge section
-- [ ] Read `plan.md` Failed Approaches table
-- [ ] Check: is your planned experiment different from all failed ones?
-- [ ] Check: does your strategy build on confirmed knowledge?
+### 实验前检查清单
+每次运行分析或回归前：
+- [ ] 读 `plan.md` 的「已确认知识」
+- [ ] 读 `plan.md` 的「失败方法」表
+- [ ] 确认：你计划的实验和之前的失败有本质区别？
+- [ ] 确认：你的策略基于已确认的知识？
 
-### Post-Experiment Update
-After receiving results:
-- [ ] Update `Confirmed Knowledge` if the result is informative
-- [ ] Add to `Failed Approaches` if the strategy didn't improve MSE
-- [ ] Update `Current Hypotheses` based on new evidence
-- [ ] Add next steps to `Strategy Queue`
+### 实验后更新
+获得结果后：
+- [ ] 如果发现有价值的信息 → 更新「已确认知识」
+- [ ] 如果策略没有改善指标 → 记入「失败方法」
+- [ ] 基于新证据 → 更新「当前假设」
+- [ ] 添加下一步 → 更新「策略队列」
 
-## Strategy Mutation Rules
+## 策略变异规则
 
-### Minimum Viable Difference
-Each new experiment must change at least ONE of:
-- **Variables**: different feature subset
-- **Operators**: different unary/binary operators
-- **Structure**: different expression template or maxsize
-- **Parameters**: different parsimony, populations, niterations
-- **Data**: derived features, filtered subset, transformed target
+### 最小可行差异
+每次新实验必须至少改变以下之一：
+- **变量**：不同的特征子集
+- **算子**：不同的一元/二元运算符
+- **结构**：不同的表达式模板或最大复杂度
+- **参数**：不同的简约性、种群数、迭代次数
+- **数据**：派生特征、过滤子集、变换目标
 
-### Escalation Ladder
-When incremental changes stop improving:
-1. First: try different variable combinations
-2. Then: try different operator sets
-3. Then: try feature engineering (derived variables)
-4. Then: try radically different approach (e.g., ODE discovery instead of static regression)
-5. Finally: increase computational budget (more iterations, larger maxsize)
+### 逐步升级
+当增量改进停滞时：
+1. 首先：尝试不同的变量组合
+2. 然后：尝试不同的算子集
+3. 然后：尝试特征工程（派生变量）
+4. 然后：尝试彻底不同的方法（如从静态回归转向 ODE 发现）
+5. 最后：增加计算预算（更多迭代、更大搜索空间）
 
-## Recording Standards
+## 记录标准
 
-### Failed Approaches Table
-Each entry must include:
-- **Round**: when it was tried
-- **Strategy**: brief description of what was attempted
-- **Variables**: which variables were used
-- **Template/Params**: expression template or key PySR parameters
-- **MSE**: result metric
-- **Why Failed**: brief explanation of why this didn't work
+### 失败方法表
+每条记录必须包含：
+- **轮次**：何时尝试的
+- **策略**：简要描述尝试了什么
+- **变量**：使用了哪些变量
+- **模板/参数**：表达式模板或关键参数
+- **MSE**：结果指标
+- **失败原因**：简要解释为什么没用
 
-### Confirmed Knowledge
-Update when:
-- A variable is confirmed as relevant (appears in multiple good equations)
-- A variable is confirmed as irrelevant (never improves results)
-- A specific relationship is confirmed (e.g., "x1 and x3 interact multiplicatively")
-- A specific operator is important (e.g., "sin() is needed for this data")
+### 已确认知识
+在以下情况更新：
+- 某个变量被确认为相关（出现在多个好的方程中）
+- 某个变量被确认为无关（从未改善结果）
+- 发现特定关系（如"x1 和 x3 存在乘法交互"）
+- 发现特定算子很重要（如"此数据需要 sin()"）
 
-## Anti-Patterns to Avoid
+## 应避免的反模式
 
-1. **Strategy Loop**: repeating a failed approach with minor tweaks
-2. **Kitchen Sink**: throwing all variables at PySR without hypotheses
-3. **Complexity Creep**: always increasing maxsize without parsimony
-4. **Tunnel Vision**: only trying one type of approach (e.g., only linear combinations)
-5. **Amnesia**: not reading plan.md before designing experiments
+1. **策略循环**：用微小改动重复已失败的方法
+2. **大杂烩**：不带假设地把所有变量扔进去
+3. **复杂度膨胀**：只增加复杂度而不增加简约性约束
+4. **隧道视野**：只尝试一种类型的方法
+5. **遗忘症**：实验前不读 plan.md

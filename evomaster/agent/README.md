@@ -283,7 +283,7 @@ class MyTool(BaseTool):
 工具注册中心
 ```python
 # 创建默认工具集
-tools = create_default_registry()
+tools = create_registry()
 
 # 注册自定义工具
 tools.register(MyTool())
@@ -322,7 +322,7 @@ from evomaster import (
     LLMConfig,
     DockerSession,
     DockerSessionConfig,
-    create_default_registry,
+    create_registry,
     TaskInstance,
 )
 
@@ -341,7 +341,7 @@ session = DockerSession(DockerSessionConfig(
 agent = Agent(
     llm=llm,
     session=session,
-    tools=create_default_registry(),
+    tools=create_registry(),
 )
 
 # 4. 定义任务
@@ -371,7 +371,7 @@ Always include docstrings and type hints.
 agent = Agent(
     llm=llm,
     session=session,
-    tools=create_default_registry(),
+    tools=create_registry(),
     system_prompt=custom_prompt,  # 自定义提示词
 )
 ```
@@ -424,7 +424,7 @@ class MyTool(BaseTool):
         return result, {"success": True}
 
 # 3. 注册工具
-tools = create_default_registry()
+tools = create_registry()
 tools.register(MyTool())
 
 # 4. 使用
@@ -474,7 +474,7 @@ agent = Agent(
         image="python:3.11-slim",
         memory_limit="2g",
     )),
-    tools=create_default_registry(),
+    tools=create_registry(),
     config=AgentConfig(
         max_turns=50,  # 较少的轮数用于快速调试
     ),

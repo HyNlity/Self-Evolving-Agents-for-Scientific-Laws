@@ -1,61 +1,59 @@
-# Convergence Guide
+# 收敛指南
 
-## When to Declare Satisfaction
+## 何时宣布满意
 
-A symbolic regression task can be considered converged when ANY of:
+当以下任一条件满足时，可以认为任务已收敛：
 
-### 1. MSE Threshold Met
-- The current best equation achieves MSE below a task-specified threshold
-- If no threshold is specified, use domain-appropriate judgment
+### 1. MSE 达到阈值
+- 当前最优方程的 MSE 低于任务指定的阈值
+- 如果没有指定阈值，用领域知识判断
 
-### 2. MSE Plateau
-- MSE has not improved by more than 1% for the last 3 rounds
-- AND at least 3 different strategies have been tried
-- This suggests the search space has been adequately explored
+### 2. MSE 趋于平稳
+- 最近 3 轮 MSE 改善不超过 1%
+- 且至少尝试了 3 种不同策略
+- 说明搜索空间已被充分探索
 
-### 3. Equation Stability
-- The same (or equivalent) equation appears as best for 2+ consecutive rounds
-- Different variable subsets and parameter settings converge to the same form
-- This is strong evidence of a true underlying relationship
+### 3. 方程稳定
+- 相同（或等价）方程连续 2 轮以上保持最优
+- 不同变量子集和参数设置收敛到相同形式
+- 这是底层关系真实存在的强证据
 
-### 4. Physical Interpretability
-- The best equation has a clear physical/scientific interpretation
-- It uses a reasonable number of variables (parsimony)
-- It generalizes to OOD data (if available)
+### 4. 物理可解释性
+- 最优方程有清晰的物理/科学含义
+- 变量数量合理（简约性）
+- 对分布外数据泛化良好（如果有的话）
 
-## When NOT to Stop
+## 何时不应停止
 
-Do not declare convergence if:
-- Only 1-2 strategies have been tried
-- The current best MSE is clearly improvable (large residual patterns visible)
-- Feature engineering hasn't been attempted and residuals show systematic patterns
-- The equation is overly complex (high complexity score) and simpler alternatives haven't been explored
+以下情况不要宣布收敛：
+- 只尝试了 1-2 种策略
+- 当前 MSE 明显还有改善空间（残差有明显模式）
+- 还没尝试过特征工程，但残差呈现系统性模式
+- 方程过于复杂，且尚未探索更简单的替代方案
 
-## Convergence Signals from Data
+## 从数据判断收敛
 
-### Residual Analysis
-- **Random residuals** → good fit, consider stopping
-- **Systematic patterns** → missing terms, keep iterating
-- **Outlier-driven MSE** → might need robust fitting or data cleaning
+### 残差分析
+- **随机残差** → 拟合良好，可以考虑停止
+- **系统性模式** → 缺失项，继续迭代
+- **离群值主导 MSE** → 可能需要稳健拟合或数据清洗
 
-### Complexity-MSE Tradeoff
-- Plot (or inspect) the Pareto front of complexity vs. MSE
-- Look for an "elbow" where more complexity gives diminishing returns
-- The equation at the elbow is often the best answer
+### 复杂度-MSE 权衡
+- 检查复杂度 vs. MSE 的 Pareto 前沿
+- 寻找"拐点"——更高复杂度带来递减收益的地方
+- 拐点处的方程通常是最佳答案
 
-### OOD Performance
-- If `data_ood.csv` is available, check OOD MSE
-- Large gap between in-sample and OOD MSE → overfitting
-- Similar in-sample and OOD MSE → good generalization, consider stopping
+### 分布外性能
+- 如果有测试集，检查 OOD MSE
+- 训练和测试 MSE 差距大 → 过拟合
+- 训练和测试 MSE 接近 → 泛化良好，可以考虑停止
 
-## Progress Indicators
+## 进度指标
 
-Use these to assess whether iteration is productive:
-
-| Indicator | Good Sign | Bad Sign |
-|-----------|-----------|----------|
-| MSE trend | Decreasing across rounds | Flat or oscillating |
-| Variable set | Converging to a stable subset | Changing randomly |
-| Equation form | Consistent structure across rounds | Completely different each time |
-| Residual patterns | Becoming more random | Persistent systematic patterns |
-| Strategy diversity | Many different approaches tried | Repeating same approach |
+| 指标 | 好迹象 | 坏迹象 |
+|------|--------|--------|
+| MSE 趋势 | 逐轮递减 | 平稳或波动 |
+| 变量集 | 收敛到稳定子集 | 每次随机变化 |
+| 方程形式 | 跨轮结构一致 | 每次完全不同 |
+| 残差模式 | 越来越随机 | 持续的系统性模式 |
+| 策略多样性 | 尝试了多种不同方法 | 反复用同种方法 |

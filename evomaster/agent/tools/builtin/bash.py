@@ -22,12 +22,12 @@ class BashToolParams(BaseToolParams):
     ### Command Execution
     * One command at a time: You can only execute one bash command at a time. If you need to run multiple commands sequentially, use `&&` or `;` to chain them together.
     * Persistent session: Commands execute in a persistent shell session where environment variables, virtual environments, and working directory persist between commands.
-    * Soft timeout: Commands have a soft timeout of 10 seconds, once that's reached, you have the option to continue or interrupt the command.
+    * Default timeout: Commands have a default timeout of 1 hour. For commands that may run longer, set the "timeout" parameter.
 
     ### Long-running Commands
-    * For commands that may run indefinitely, run them in the background and redirect output to a file, e.g. `python3 app.py > server.log 2>&1 &`.
-    * For commands that may run for a long time, you should set the "timeout" parameter to an appropriate value.
-    * If a bash command returns exit code `-1`, this means the process hit the soft timeout and is not yet finished. By setting `is_input` to `true`, you can:
+    * For commands that may run indefinitely (e.g. servers), run them in the background: `python3 app.py > server.log 2>&1 &`.
+    * For scientific computing tasks (e.g. PySR, numerical integration), just run them directly — the default 1 hour timeout is sufficient for most cases.
+    * If a bash command returns exit code `-1`, this means the process is still running. By setting `is_input` to `true`, you can:
       - Send empty `command` to retrieve additional logs
       - Send text (set `command` to the text) to STDIN of the running process
       - Send control commands like `C-c` (Ctrl+C), `C-z` (Ctrl+Z) to interrupt the process
@@ -51,7 +51,7 @@ class BashToolParams(BaseToolParams):
     )
     timeout: float = Field(
         default=-1,
-        description="Optional. Sets a hard timeout in seconds for the command execution. If not provided, the command will use the default soft timeout behavior.",
+        description="Optional timeout in seconds. Default is 1 hour. Only set this if you need a longer timeout.",
     )
 
 

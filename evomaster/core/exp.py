@@ -10,6 +10,92 @@ from evomaster.utils.types import TaskInstance
 from typing import Any
 
 
+def extract_agent_response(trajectory: Any) -> str:
+    """从轨迹中提取 Agent 的最终回答（模块级工具函数）
+
+    支持两种数据格式：
+    - 对象格式（有 .dialogs 属性，来自运行时）
+    - dict 格式（JSON 反序列化结果，来自轨迹文件）
+
+    提取优先级：
+    1. 最后一条 assistant 消息的 finish tool_call 中的 message 参数
+    2. 最后一条有内容的 assistant 消息的 content
+
+    Args:
+        trajectory: 执行轨迹（对象或 dict）
+
+    Returns:
+        Agent 的回答文本，提取失败返回空字符串
+    """
+    if not trajectory:
+        return ""
+
+    # 获取 dialogs（兼容对象和 dict）
+    if isinstance(trajectory, dict):
+        dialogs = trajectory.get("dialogs")
+    elif hasattr(trajectory, "dialogs"):
+        dialogs = trajectory.dialogs
+    else:
+        return ""
+
+    if not dialogs:
+        return ""
+
+    last_dialog = dialogs[-1]
+
+    # 获取 messages（兼容对象和 dict）
+    if isinstance(last_dialog, dict):
+        messages = last_dialog.get("messages", [])
+    else:
+        messages = getattr(last_dialog, "messages", [])
+
+    if not messages:
+        return ""
+
+    # 反向遍历，找最后一条 assistant 消息
+    last_content = ""
+    for message in reversed(messages):
+        if isinstance(message, dict):
+            role = message.get("role", "")
+            content = message.get("content", "")
+            tool_calls = message.get("tool_calls", [])
+        else:
+            role = getattr(message, "role", None)
+            role = role.value if hasattr(role, "value") else str(role) if role else ""
+            content = getattr(message, "content", "")
+            tool_calls = getattr(message, "tool_calls", [])
+
+        if role != "assistant":
+            continue
+
+        # 优先检查 finish tool_call 的 message 参数
+        for tc in (tool_calls or []):
+            if isinstance(tc, dict):
+                func = tc.get("function", {})
+                name = func.get("name", "")
+                args = func.get("arguments", "")
+            else:
+                func = getattr(tc, "function", None)
+                name = getattr(func, "name", "") if func else ""
+                args = getattr(func, "arguments", "") if func else ""
+
+            if name == "finish":
+                try:
+                    finish_args = json.loads(args) if isinstance(args, str) else args
+                    finish_msg = finish_args.get("message", "")
+                    if finish_msg:
+                        return finish_msg
+                except (json.JSONDecodeError, AttributeError):
+                    pass
+
+        # 回退到 content
+        if content and content.strip():
+            if not last_content:
+                last_content = content
+
+    return last_content
+
+
 class BaseExp:
     """实验基类
 
@@ -51,12 +137,13 @@ class BaseExp:
         """
         self.run_dir = Path(run_dir)
 
-    def run(self, task_description: str, task_id: str = "exp_001") -> dict:
+    def run(self, task_description: str, task_id: str = "exp_001", images: list[str] | None = None) -> dict:
         """运行一次实验
 
         Args:
             task_description: 任务描述
             task_id: 任务 ID
+            images: 图片文件路径列表（可选，用于多模态任务）
 
         Returns:
             运行结果字典
@@ -66,6 +153,7 @@ class BaseExp:
             task_id=task_id,
             task_type="discovery",
             description=task_description,
+            images=images or [],
         )
 
         # 运行 Agent
@@ -111,58 +199,10 @@ class BaseExp:
     def _extract_agent_response(self, trajectory: Any) -> str:
         """从轨迹中提取Agent的最终回答
 
-        优先从最后一次 `finish` 工具调用参数中提取 `message`。
-        因为 Agent 在检测到 `finish` 时会直接结束当前回合（不会真的执行 finish 工具），
-        此时最终内容通常只存在于 tool_calls.arguments 中。
-
         Args:
             trajectory: 执行轨迹
 
         Returns:
             Agent的回答文本
         """
-        if not trajectory or not trajectory.dialogs:
-            return ""
-
-        # 1) 优先：从 steps 里找最后一次 finish 调用并解析其 message
-        try:
-            if hasattr(trajectory, "steps") and isinstance(trajectory.steps, list):
-                for step in reversed(trajectory.steps):
-                    assistant_message = getattr(step, "assistant_message", None)
-                    tool_calls = getattr(assistant_message, "tool_calls", None)
-                    if not tool_calls:
-                        continue
-                    for tc in reversed(tool_calls):
-                        fn = getattr(tc, "function", None)
-                        if not fn or getattr(fn, "name", None) != "finish":
-                            continue
-                        args = getattr(fn, "arguments", "") or ""
-                        try:
-                            parsed = json.loads(args) if isinstance(args, str) and args.strip() else {}
-                        except Exception:
-                            return args
-                        if isinstance(parsed, dict):
-                            msg = parsed.get("message")
-                            if isinstance(msg, str):
-                                return msg
-                            # 兼容：有些实现可能直接把最终文本放在其它字段
-                            for k in ("final", "answer", "output"):
-                                v = parsed.get(k)
-                                if isinstance(v, str) and v.strip():
-                                    return v
-                            return json.dumps(parsed, ensure_ascii=False)
-                        return str(parsed)
-        except Exception:
-            # 任何解析异常都不应阻断后续兜底逻辑
-            pass
-
-        # 获取最后一个对话
-        last_dialog = trajectory.dialogs[-1]
-        
-        # 查找最后一个助手消息
-        for message in reversed(last_dialog.messages):
-            if hasattr(message, 'role') and message.role.value == 'assistant':
-                if hasattr(message, 'content') and message.content:
-                    return message.content
-        
-        return ""
+        return extract_agent_response(trajectory)

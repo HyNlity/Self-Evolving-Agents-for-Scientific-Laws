@@ -1,62 +1,60 @@
 # Hamilton - 符号回归 Agent
 
-Hamilton 是一个基于 EvoMaster 框架的符号回归（Symbolic Regression）Agent，专门用于在**过完备变量**环境下发现数学方程。
-
-## 核心能力
-
-- **多轮迭代分析**：通过多轮迭代逐步发现数据中的潜在方程
-- **变量分析**：自动分析变量相关性、重要性，筛选关键特征
-- **PySR 集成**：调用 PySR 进行符号回归，自动记录参数和结果
-- **残差分析**：验证发现方程的可靠性
-- **物理含义推理**：解释发现方程的物理意义
-
----
+Hamilton 是基于 EvoMaster 框架的符号回归（Symbolic Regression）Agent，专门用于在**过完备变量**环境下发现数学方程。
 
 ## 架构
 
-### 三层架构
+单 Agent + HCC（Hierarchical Cognitive Caching）分层记忆，四阶段闭环迭代。
 
 ```
-Playground (编排) → Exp (执行) → Agent (执行)
+┌─────────────────────────────────────────────────────┐
+│                HamiltonPlayground                    │
+│              (多轮循环编排 + L2 post-check)           │
+└─────────────────────────────────────────────────────┘
+                          │
+                          ▼
+┌─────────────────────────────────────────────────────┐
+│                     RoundExp                         │
+│  系统: 重置 L1 → Agent 执行 → 解析 signal → post-check │
+└─────────────────────────────────────────────────────┘
+                          │
+                          ▼
+┌─────────────────────────────────────────────────────┐
+│                  单 Agent 闭环                        │
+│  Discovery → Verification → Promotion → Finish       │
+│  (变量分析/PySR/拟合) (残差/OOD) (写L2) (signal)      │
+└─────────────────────────────────────────────────────┘
 ```
 
-- **HamiltonPlayground**: 整体编排，管理多轮迭代
-- **RoundExp**: 单轮执行，协调两个 Agent
-- **Agent**: 具体执行分析任务
-
-### 双 Agent 协作
+### 每轮流程
 
 ```
-┌─────────────────────────────────────────────────────────────┐
-│                    HamiltonPlayground                       │
-│                    (多轮循环编排)                            │
-└─────────────────────────────────────────────────────────────┘
-                              │
-                              ▼
-┌─────────────────────────────────────────────────────────────┐
-│                       RoundExp                              │
-│  ┌──────────────────┐    ┌─────────────────────────────┐ │
-│  │ HamiltonAgent    │    │ Eureka Agent           │ │
-│  │ - 变量分析        │    │ - 评估 PySR 结果             │ │
-│  │ - 方法选择        │    │ - 残差分析                  │ │
-│  │ - PySR 调用       │    │ - 物理含义推理               │ │
-│  └──────────────────┘    └─────────────────────────────┘ │
-└─────────────────────────────────────────────────────────────┘
+Round N 开始
+    │
+    ├─ 系统: 重置 execution_trace.md（L1 工作记忆）
+    ├─ 系统: 快照 L2 文件 mtime（用于 post-check）
+    │
+    ├─ Agent 执行（四阶段闭环）
+    │     ├─ Phase 1 Discovery: 读 L2 → 变量分析 → 拟合/PySR
+    │     ├─ Phase 2 Verification: 残差分析 → OOD 验证
+    │     ├─ Phase 3 Promotion: 提炼结论到 findings.md + plan.md
+    │     └─ Phase 4 Finish: 发出 satisfied 信号
+    │
+    ├─ 系统: 解析 satisfied 信号
+    ├─ 系统: L2 post-check（检测 findings.md / plan.md 是否更新）
+    │
+Round N 结束 → satisfied=true ? 停止 : 进入 Round N+1
 ```
 
-### 复用 EvoMaster 能力
+### HCC 分层记忆
 
-Hamilton 完全基于 EvoMaster 框架构建，复用了大量基础设施：
+| 层级 | 文件 | 生命周期 | 内容 |
+|------|------|----------|------|
+| **L1** | `execution_trace.md` | 每轮重置（锯齿形） | 当前轮的操作记录、指标、工作笔记 |
+| **L2** | `plan.md` | 持久积累（阶梯形） | 战略计划、当前最优、策略队列、失败方法 |
+| **L2** | `findings.md` | 持久积累（阶梯形） | 验证结论、实验结果表、最优方程演化 |
 
-| 复用模块 | 用途 |
-|----------|------|
-| `BasePlayground` | 编排生命周期管理 |
-| `BaseExp` | 实验执行基类 |
-| `ToolRegistry` | 工具注册与管理 |
-| `BaseTool` | 自定义工具基类 |
-| `@register_playground` | 装饰器注册 |
-| LLM 配置与调用 | OpenAI/Anthropic |
-| Session 管理 | 本地执行环境 |
+L2 文件驱动跨轮知识传递：Agent 每轮读取 L2 → 基于历史做决策 → 将新发现提炼回 L2。
 
 ---
 
@@ -65,191 +63,69 @@ Hamilton 完全基于 EvoMaster 框架构建，复用了大量基础设施：
 ```
 playground/hamilton/
 ├── core/
-│   ├── playground.py      # HamiltonPlayground，多轮迭代编排
-│   └── exp.py             # RoundExp，单轮执行逻辑
-├── tools/
-│   └── pysr_tool.py       # PySR 工具封装
+│   ├── playground.py      # HamiltonPlayground: 多轮编排 + workspace 初始化
+│   ├── exp.py             # RoundExp: 单轮执行 + signal 解析 + L2 post-check
+│   └── constants.py       # Signal markers、字段定义
 ├── prompts/
-│   ├── hamilton_system.txt
-│   ├── hamilton_user.txt
-│   ├── eureka_system.txt
-│   └── eureka_user.txt
+│   ├── hamilton_system.txt # Agent 系统提示（四阶段协议 + HCC 规范）
+│   └── hamilton_user.txt   # Agent 用户提示（任务注入）
+├── benchmarks/
+│   └── viv/               # VIV 多风速基准数据 + 任务描述
+├── workspace/             # 模板目录（自动 seed 到 run workspace）
+│   ├── task.md            # 任务描述（含数据路径和评估标准）
+│   └── input/             # 数据文件（CSV）
+├── README.md
 └── TODO.md
 ```
 
-### Workspace 文件
+### Run Workspace（运行时）
 
 ```
-workspace/
-├── data.csv              # 输入数据
-├── analysis.md       # 分析历史（HamiltonAgent 书写）
-├── insight.md            # 靠谱发现（Eureka Agent 书写；顶部 Current Best 由系统自动维护）
-├── experiment.json       # PySR 参数与结果（系统自动记录）
+{run_dir}/workspace/
+├── task.md                # 任务描述（只读）
+├── plan.md                # L2 战略（当前最优 + 策略队列 + 失败方法）
+├── findings.md            # L2 知识（验证结论 + 实验结果 + 最优方程演化）
+├── execution_trace.md     # L1 工作记忆（每轮重置）
+├── input/                 # 数据文件（只读）
 └── history/
     └── round{N}/
-        ├── scripts/      # 每轮代码
-        └── results/      # 每轮结果
-```
-
-> 注意：`run.py` 默认会为每次任务创建全新的 run workspace（`runs/<agent>_<timestamp>/workspace/`）。
-> 建议把你的 `data.csv` 放在 `playground/hamilton/workspace/data.csv` 作为模板，Hamilton 会在每次运行时自动拷贝到新 workspace。
-
----
-
-## 迭代机制
-
-### 历史信息复用
-
-通过三个文件实现跨轮次信息传递：
-
-| 文件 | 写入者 | 内容 | 格式 |
-|------|--------|------|------|
-| **analysis.md** | HamiltonAgent | 分析过程、方法、决策 | `## Round N` + 自由书写 |
-| **experiment.json** | 系统自动 | PySR 参数与结果表 | JSON |
-| **insight.md** | Eureka Agent | 每轮验证结论；顶部 Current Best | `## Round N` + 最小模板 |
-
-### 迭代流程
-
-```
-Round N 开始
-    │
-    ├─ 系统自动初始化
-    │     ├─ analysis.md 添加 ## Round N 头部
-    │     └─ experiment.json 初始化结构
-    │
-    ├─ HamiltonAgent 执行
-    │     ├─ 读取 analysis.md（历史）
-    │     ├─ 变量分析、方法选择
-    │     ├─ 调用 PySR
-    │     │     └─ 系统自动记录参数和结果到 experiment.json
-    │     └─ 追加分析过程到 analysis.md
-    │
-    ├─ Eureka Agent 执行
-    │     ├─ 读取 experiment.json（PySR 结果）
-    │     ├─ 残差分析、物理含义推理
-    │     └─ 写入 insight.md
-    │
-Round N 结束 → 进入 Round N+1
+        ├── scripts/       # Agent 写的脚本
+        └── results/       # 每轮结果 + 派生数据
 ```
 
 ---
 
-## 可拓展性
+## 核心组件
 
-### 1. 新增 Agent
+### PySR Skill (`evomaster/skills/pysr/`)
+- PySR API 速查和模板指南
+- Agent 通过 `use_skill pysr get_info` / `get_reference` 按需加载
 
-Hamilton 基于 `BasePlayground.setup()` 创建 `agents:` 中声明的所有 Agent。
-新增 Agent 的推荐方式：
+### Evo Protocol Skill (`evomaster/skills/evo-protocol/`)
+- 科学迭代协议（假设 → 实验 → 记录 → 迭代）
+- plan 模板（含 Current Best markers）、完整规则、收敛指南
 
-1) 在配置文件里新增 `agents.<name>`（提示词放在 `playground/hamilton/prompts/`）
-2) 在 `HamiltonPlayground.setup()` / `RoundExp.run()` 中按需取用 `self.agents["<name>"]` 并编排执行顺序
-
-```python
-# playground.py
-def setup(self):
-    super().setup()
-    self.new_agent = self.agents["new_agent"]
-```
-
-配置文件中添加：
-
-```yaml
-agents:
-  new_agent:
-    llm: "openai"
-    max_turns: 50
-    enable_tools: true
-    system_prompt_file: "prompts/new_agent_system.txt"
-    user_prompt_file: "prompts/new_agent_user.txt"
-```
-
-### 2. 新增工具
-
-继承 `BaseTool` 创建新工具：
-
-```python
-# tools/new_tool.py
-from evomaster.agent.tools.base import BaseTool, BaseToolParams
-
-class NewToolParams(BaseToolParams):
-    name: ClassVar[str] = "new_tool"
-    param1: str = Field(description="参数1")
-    param2: int = Field(default=10, description="参数2")
-
-class NewTool(BaseTool):
-    name: ClassVar[str] = "new_tool"
-    params_class: ClassVar[type[BaseToolParams]] = NewToolParams
-
-    def execute(self, session, args_json: str) -> tuple[str, dict]:
-        params = self.parse_params(args_json)
-        # 实现逻辑
-        return result, metadata
-```
-
-在 `HamiltonPlayground._setup_tools()` 中注册：
-
-```python
-def _setup_tools(self, skill_registry=None) -> None:
-    super()._setup_tools(skill_registry)
-    self.tools.register(NewTool())
-```
-
-### 3. 新增分析算法
-
-在 prompt 中引导 Agent 调用新算法：
-
-```python
-# hamilton_user.txt
-## 执行
-
-1. 读取分析历史
-2. 执行分析（可使用：相关性分析、PCA、特征重要性、互信息等）
-3. 追加到 analysis.md
-```
-
-### 4. 拓展 RoundExp 流程
-
-在 `RoundExp.run()` 中添加新步骤：
-
-```python
-def run(self, task_description: str, task_id: str = "exp_001") -> dict:
-    # ... 现有步骤 ...
-
-    # 新增：步骤3
-    self.logger.info(f"[Round {self.round_num}] Running NewAgent...")
-    new_task = TaskInstance(...)
-    new_trajectory = self.new_agent.run(new_task)
-    new_result = self._extract_agent_response(new_trajectory)
-
-    # ... 返回结果 ...
-```
-
-### 5. 新增数据记录
-
-在 `experiment.json` 中添加新字段：
-
-```python
-# pysr_tool.py 或 exp.py
-def _record_extra(self, workspace, extra_data):
-    # 读取现有 JSON
-    # 添加新字段
-    # 写入
-```
+### Signal 机制
+- Agent 调用 `finish(message="...", task_completed="true"/"false")` 结束本轮
+- 系统从 `task_completed` 判断是否停止迭代（`"true"` = 停止，`"false"` = 继续）
+- 如果 Agent 未调用 finish，系统默认继续迭代并输出 warning
 
 ---
 
 ## 使用方法
 
-### 快速开始
-
 ```bash
-# 准备数据
-echo "x1,x2,x3,y" > workspace/data.csv
-echo "1,2,3,5" >> workspace/data.csv
-# ... 更多数据
+# 准备数据：将 CSV 放入 workspace/input/
+cp your_data.csv playground/hamilton/workspace/input/
+
+# 编写任务描述
+vim playground/hamilton/workspace/task.md
 
 # 运行
 python run.py --agent hamilton --task "发现数据中的方程"
+
+# 指定 run 目录
+python run.py --agent hamilton --task "task" --run-dir runs/my_experiment
 ```
 
 ### 配置
@@ -257,37 +133,30 @@ python run.py --agent hamilton --task "发现数据中的方程"
 修改 `configs/hamilton/config.yaml`：
 
 ```yaml
-agents:
-  hamilton:
-    max_turns: 100  # 增加迭代次数
+agent:
+  max_turns: 100      # 单轮最大工具调用次数
 
 experiment:
-  max_rounds: 10   # 增加轮数
-
-experiment:
-  pysr:
-    niterations: 200  # 增加 PySR 迭代
+  max_rounds: 10      # 最大迭代轮数
 ```
 
 ---
 
 ## 设计理念
 
-### 外部化记忆
+### 外部化记忆（HCC）
+不依赖 Agent 内部 memory，用文件作为持久化知识库：
+- L1 每轮重置，避免上下文膨胀
+- L2 持久积累，确保知识不丢失
+- 人类可阅读、检查和干预
 
-不依赖 Agent 内部 memory，而是用文件作为持久化知识库：
-- Agent 可自由读取历史
-- 人类可阅读和检查
-- 便于调试和审计
+### 单 Agent 闭环
+一个 Agent 完成发现 → 验证 → 提炼全流程，避免多 Agent 间信息损耗。
 
-### 职责分离
-
-- **Agent**: 负责语义分析、推理、决策
-- **系统**: 负责结构化记录、流程控制
-- **文件**: 负责信息传递、持久化
+### 系统最小职责
+系统只做三件事：重置 L1、解析 satisfied 信号、L2 post-check。所有语义决策由 Agent 自主完成。
 
 ### 可调试性
-
-- 每轮代码保存到 `history/round{N}/scripts/`
-- PySR 参数和结果自动记录到 JSON
-- 可回溯任何一轮的分析过程
+- 每轮脚本保存到 `history/round{N}/scripts/`
+- L2 文件记录完整实验演化过程
+- L2 post-check 提前发现 Agent 跳过 Promotion 的问题

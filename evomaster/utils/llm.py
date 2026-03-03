@@ -5,16 +5,86 @@
 
 from __future__ import annotations
 
+import base64
 import logging
 import sys
 import time
 from abc import ABC, abstractmethod
+from pathlib import Path
 from typing import Any, Literal
 
-import os
 from pydantic import BaseModel, Field
 
 from evomaster.utils.types import AssistantMessage, Dialog, FunctionCall, ToolCall
+
+
+def encode_image_to_base64(image_path: str) -> str:
+    """将图片文件编码为 base64 字符串
+
+    Args:
+        image_path: 图片文件路径
+
+    Returns:
+        base64 编码字符串
+    """
+    with open(image_path, "rb") as f:
+        return base64.b64encode(f.read()).decode("utf-8")
+
+
+def get_image_media_type(image_path: str) -> str:
+    """根据文件扩展名获取图片的 MIME 类型
+
+    Args:
+        image_path: 图片文件路径
+
+    Returns:
+        MIME 类型字符串
+    """
+    suffix = Path(image_path).suffix.lower()
+    media_types = {
+        ".png": "image/png",
+        ".jpg": "image/jpeg",
+        ".jpeg": "image/jpeg",
+    }
+    return media_types.get(suffix, "image/png")
+
+
+def build_multimodal_content(text: str, image_paths: list[str]) -> list[dict[str, Any]]:
+    """构建包含文本和图片的多模态内容块列表
+
+    生成 OpenAI 格式的 content 块列表，兼容 OpenAI / DeepSeek / OpenRouter 等 API。
+
+    Args:
+        text: 文本内容
+        image_paths: 图片文件路径列表
+
+    Returns:
+        内容块列表，例如：
+        [
+            {"type": "image_url", "image_url": {"url": "data:image/png;base64,..."}},
+            {"type": "text", "text": "请分析这些图片"}
+        ]
+    """
+    content_blocks: list[dict[str, Any]] = []
+
+    # 先添加图片
+    for img_path in image_paths:
+        media_type = get_image_media_type(img_path)
+        b64_data = encode_image_to_base64(img_path)
+        content_blocks.append({
+            "type": "image_url",
+            "image_url": {
+                "url": f"data:{media_type};base64,{b64_data}"
+            }
+        })
+
+    # 再添加文本
+    content_blocks.append({
+        "type": "text",
+        "text": text,
+    })
+
+    return content_blocks
 
 
 def truncate_content(content: str, max_length: int = 5000, head_length: int = 2500, tail_length: int = 2500) -> str:
@@ -139,8 +209,9 @@ class BaseLLM(ABC):
             self._log_request(messages, tools)
 
         # 调用 API（带重试）
+        # breakpoint()
         response = self._call_with_retry(messages, tools, **kwargs)
-
+        # breakpoint()
         # 记录响应（如果启用日志）
         if self.log_to_file:
             self._log_response(response)
@@ -206,7 +277,7 @@ class BaseLLM(ABC):
         if role == "assistant" and tool_calls:
             if content:
                 # 有文本内容，先显示内容
-                content_display = truncate_content(content) if isinstance(content, str) else content
+                content_display = truncate_content(content) if isinstance(content, str) else f"[Multimodal content with {len(content)} blocks]"
                 self.logger.info(f"  [{index}] {role}: {content_display}")
             else:
                 # 只有工具调用，显示占位符
@@ -236,6 +307,12 @@ class BaseLLM(ABC):
             # 正常消息（没有工具调用）
             if isinstance(content, str):
                 content = truncate_content(content)
+            elif isinstance(content, list):
+                # 多模态内容：显示摘要信息
+                text_blocks = [b for b in content if b.get("type") == "text"]
+                image_blocks = [b for b in content if b.get("type") in ("image_url", "image")]
+                text_preview = text_blocks[0].get("text", "")[:200] if text_blocks else ""
+                content = f"[Multimodal: {len(image_blocks)} image(s)] {text_preview}..."
             self.logger.info(f"  [{index}] {role}: {content}")
 
     def _log_response(self, response: LLMResponse) -> None:
@@ -313,68 +390,16 @@ class OpenAILLM(BaseLLM):
                 "OpenAI package not installed. Install with: pip install openai"
             )
 
-        # Support OpenAI-compatible backends that prefer env-based config.
-        # - OPENAI_API_KEY / OPENAI_BASE_URL: standard
-        # - GPT_KEY / GPT_BASE_URL: common internal convention
-        api_key = (
-            (self.config.api_key or "").strip()
-            or (os.environ.get("OPENAI_API_KEY") or "").strip()
-            or (os.environ.get("GPT_KEY") or "").strip()
-        )
-        base_url = (
-            (self.config.base_url or "").strip()
-            or (os.environ.get("OPENAI_BASE_URL") or "").strip()
-            or (os.environ.get("GPT_BASE_URL") or "").strip()
-            or None
-        )
-
-        if not api_key:
-            raise ValueError(
-                "OpenAI API key must be provided via config `llm.<name>.api_key` "
-                "or environment variable OPENAI_API_KEY / GPT_KEY."
-            )
+        # API key 必须在配置中提供
+        if not self.config.api_key:
+            raise ValueError("OpenAI API key must be provided in config")
 
         # 创建客户端
-        client_kwargs = {"api_key": api_key}
-        if base_url:
-            client_kwargs["base_url"] = base_url
+        client_kwargs = {"api_key": self.config.api_key}
+        if self.config.base_url:
+            client_kwargs["base_url"] = self.config.base_url
 
-        # httpx can pick up proxy settings from environment variables (HTTP_PROXY/ALL_PROXY).
-        # If a SOCKS proxy is configured but socksio isn't installed, OpenAI() creation fails.
-        # Allow forcing trust_env off via env var, and auto-fallback if socksio is missing.
-        def _coerce_bool_env(name: str, default: bool) -> bool:
-            raw = os.environ.get(name)
-            if raw is None:
-                return default
-            return raw.strip().lower() in {"1", "true", "yes", "y", "on"}
-
-        trust_env = _coerce_bool_env("EVOMASTER_TRUST_ENV", True)
-
-        if not trust_env:
-            try:
-                import httpx  # type: ignore
-                self.client = OpenAI(**client_kwargs, http_client=httpx.Client(trust_env=False))
-                return
-            except Exception:
-                # Fall back to default client creation below.
-                pass
-
-        try:
-            self.client = OpenAI(**client_kwargs)
-        except ImportError as e:
-            # Typical failure: "Using SOCKS proxy, but the 'socksio' package is not installed."
-            if "socksio" in str(e).lower():
-                try:
-                    import httpx  # type: ignore
-                    self.logger.warning(
-                        "SOCKS proxy detected but socksio is missing; retrying OpenAI client "
-                        "creation with trust_env=False (ignoring proxy env vars)."
-                    )
-                    self.client = OpenAI(**client_kwargs, http_client=httpx.Client(trust_env=False))
-                    return
-                except Exception:
-                    pass
-            raise
+        self.client = OpenAI(**client_kwargs)
 
     def _call(
         self,
@@ -383,56 +408,30 @@ class OpenAILLM(BaseLLM):
         **kwargs: Any,
     ) -> LLMResponse:
         """调用 OpenAI API"""
-        model_name = kwargs.get("model", self.config.model) or ""
-        is_gpt5 = "gpt-5" in str(model_name).lower()
+        # 构建请求参数
+        model_name = (self.config.model or "").lower()
+        # o-series 和 GPT-5 使用 max_completion_tokens 且不支持 temperature
+        _uses_max_completion_tokens = model_name.startswith(("o1", "o3", "o4", "gpt-5"))
 
-        def _build_params(*, use_max_completion_tokens: bool) -> dict[str, Any]:
-            # Build request params. Some OpenAI-compatible gateways (Azure/LiteLLM) reject
-            # max_tokens for GPT-5 and require max_completion_tokens instead.
-            request_params: dict[str, Any] = {
-                "model": model_name,
-                "messages": messages,
-                "timeout": kwargs.get("timeout", self.config.timeout),
-            }
+        request_params = {
+            "model": self.config.model,
+            "messages": messages,
+            "timeout": kwargs.get("timeout", self.config.timeout)
+        }
 
-            if not is_gpt5:
-                request_params["temperature"] = kwargs.get("temperature", self.config.temperature)
+        if not _uses_max_completion_tokens:
+            request_params["temperature"] = kwargs.get("temperature", self.config.temperature)
 
-            max_tokens = kwargs.get("max_tokens", self.config.max_tokens) if self.config.max_tokens else None
-            if max_tokens is not None:
-                # For GPT-5, many gateways disagree on token-limit parameter names.
-                # Default: do not send any token limit for GPT-5 to avoid 400s.
-                if is_gpt5:
-                    gpt5_send_limit = os.environ.get("EVOMASTER_GPT5_SEND_TOKEN_LIMIT", "0").strip().lower() in {
-                        "1", "true", "yes", "y", "on"
-                    }
-                    if gpt5_send_limit:
-                        request_params["max_completion_tokens"] = max_tokens
-                else:
-                    if use_max_completion_tokens:
-                        request_params["max_completion_tokens"] = max_tokens
-                    else:
-                        request_params["max_tokens"] = max_tokens
+        if self.config.max_tokens:
+            token_key = "max_completion_tokens" if _uses_max_completion_tokens else "max_tokens"
+            request_params[token_key] = kwargs.get("max_tokens", self.config.max_tokens)
 
-            if tools:
-                request_params["tools"] = tools
-                request_params["tool_choice"] = kwargs.get("tool_choice", "auto")
+        if tools:
+            request_params["tools"] = tools
+            request_params["tool_choice"] = kwargs.get("tool_choice", "auto")
 
-            return request_params
-
-        try:
-            response = self.client.chat.completions.create(**_build_params(use_max_completion_tokens=False))
-        except Exception as e:
-            # Auto-fallback: if gateway rejects max_tokens (common for GPT-5),
-            # retry once with max_completion_tokens.
-            msg = str(e)
-            if "max_tokens" in msg and "max_completion_tokens" in msg:
-                self.logger.warning(
-                    "Gateway rejected max_tokens; retrying with max_completion_tokens."
-                )
-                response = self.client.chat.completions.create(**_build_params(use_max_completion_tokens=True))
-            else:
-                raise
+        # 调用 API
+        response = self.client.chat.completions.create(**request_params)
 
         # 解析响应
         choice = response.choices[0]
@@ -670,6 +669,53 @@ class AnthropicLLM(BaseLLM):
 
         self.client = Anthropic(**client_kwargs)
 
+    @staticmethod
+    def _convert_content_for_anthropic(content):
+        """将 OpenAI 格式的多模态内容转换为 Anthropic 格式
+
+        OpenAI 格式:
+            [{"type": "image_url", "image_url": {"url": "data:image/png;base64,..."}},
+             {"type": "text", "text": "..."}]
+
+        Anthropic 格式:
+            [{"type": "image", "source": {"type": "base64", "media_type": "image/png", "data": "..."}},
+             {"type": "text", "text": "..."}]
+        """
+        if not isinstance(content, list):
+            return content
+
+        converted = []
+        for block in content:
+            if block.get("type") == "image_url":
+                # 解析 data URI: "data:image/png;base64,<data>"
+                url = block["image_url"]["url"]
+                if url.startswith("data:"):
+                    # 解析 MIME 类型和 base64 数据
+                    header, b64_data = url.split(",", 1)
+                    media_type = header.split(":")[1].split(";")[0]
+                    converted.append({
+                        "type": "image",
+                        "source": {
+                            "type": "base64",
+                            "media_type": media_type,
+                            "data": b64_data,
+                        }
+                    })
+                else:
+                    # URL 形式的图片（Anthropic 也支持）
+                    converted.append({
+                        "type": "image",
+                        "source": {
+                            "type": "url",
+                            "url": url,
+                        }
+                    })
+            elif block.get("type") == "text":
+                converted.append(block)
+            else:
+                converted.append(block)
+        return converted
+
     def _call(
         self,
         messages: list[dict[str, Any]],
@@ -685,7 +731,11 @@ class AnthropicLLM(BaseLLM):
             if msg["role"] == "system":
                 system_message = msg["content"]
             else:
-                user_messages.append(msg)
+                # 转换多模态内容格式
+                converted_msg = msg.copy()
+                if "content" in converted_msg:
+                    converted_msg["content"] = self._convert_content_for_anthropic(converted_msg["content"])
+                user_messages.append(converted_msg)
 
         # 构建请求参数
         request_params = {

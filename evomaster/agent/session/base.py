@@ -14,7 +14,7 @@ from pydantic import BaseModel, Field
 
 class SessionConfig(BaseModel):
     """Session 基础配置"""
-    timeout: int = Field(default=300, description="默认执行超时时间（秒）")
+    timeout: int = Field(default=3600, description="默认执行超时时间（秒）")
     workspace_path: str = Field(default="/workspace", description="工作空间路径")
 
 

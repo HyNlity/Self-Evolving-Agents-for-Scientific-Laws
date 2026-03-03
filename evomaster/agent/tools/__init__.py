@@ -8,7 +8,7 @@
 - mcp/: MCP 协议工具支持
 """
 
-from .base import BaseTool, ToolRegistry, ToolError, create_default_registry
+from .base import BaseTool, ToolRegistry, ToolError, create_registry
 
 # 内置工具
 from .builtin import (
@@ -37,7 +37,7 @@ __all__ = [
     "BaseTool",
     "ToolRegistry",
     "ToolError",
-    "create_default_registry",
+    "create_registry",
     # Builtin Tools
     "BashTool",
     "BashToolParams",
