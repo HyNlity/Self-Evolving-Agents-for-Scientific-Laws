@@ -31,7 +31,7 @@ Hamilton 是基于 EvoMaster 框架的符号回归（Symbolic Regression）Agent
 ```
 Round N 开始
     │
-    ├─ 系统: 重置 execution_trace.md（L1 工作记忆）
+    ├─ 系统: 创建 history/round{N}/trace.md（L1 工作记忆）
     ├─ 系统: 快照 L2 文件 mtime（用于 post-check）
     │
     ├─ Agent 执行（四阶段闭环）
@@ -50,7 +50,7 @@ Round N 结束 → satisfied=true ? 停止 : 进入 Round N+1
 
 | 层级 | 文件 | 生命周期 | 内容 |
 |------|------|----------|------|
-| **L1** | `execution_trace.md` | 每轮重置（锯齿形） | 当前轮的操作记录、指标、工作笔记 |
+| **L1** | `history/round{N}/trace.md` | 每轮独立 | 当前轮的操作记录、指标、工作笔记 |
 | **L2** | `plan.md` | 持久积累（阶梯形） | 战略计划、当前最优、策略队列、失败方法 |
 | **L2** | `findings.md` | 持久积累（阶梯形） | 验证结论、实验结果表、最优方程演化 |
 
@@ -85,10 +85,12 @@ playground/hamilton/
 ├── task.md                # 任务描述（只读）
 ├── plan.md                # L2 战略（当前最优 + 策略队列 + 失败方法）
 ├── findings.md            # L2 知识（验证结论 + 实验结果 + 最优方程演化）
-├── execution_trace.md     # L1 工作记忆（每轮重置）
 ├── input/                 # 数据文件（只读）
+├── lib/                   # 可复用脚本（跨轮持久）
+│   └── README.md          # 脚本索引
 └── history/
     └── round{N}/
+        ├── trace.md       # L1 工作记忆（每轮独立）
         ├── scripts/       # Agent 写的脚本
         └── results/       # 每轮结果 + 派生数据
 ```

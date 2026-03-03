@@ -7,7 +7,7 @@
 - Playground: 循环编排，多次调用RoundExp
 
 HCC 分层记忆：
-- L1 (execution_trace.md): 每轮重置的工作记忆
+- L1 (history/round{N}/trace.md): 每轮独立的工作记忆
 - L2 (plan.md, findings.md): 只增不减的知识积累
 """
 
@@ -40,7 +40,7 @@ class HamiltonPlayground(BasePlayground):
     3. 记录实验结果
 
     每轮流程（HCC）：
-    - 系统: 重置 execution_trace.md (L1)
+    - 系统: L1 trace.md 在每轮 round 目录创建
     - Agent: 读 L2 → 发现方程 → 验证 → 提炼到 L2 → finish(satisfied)
     - 系统: 解析 signal，决定继续/停止
 
@@ -83,7 +83,7 @@ class HamiltonPlayground(BasePlayground):
         1. Copy tools/ template dir (if missing)
         2. Copy data.csv / data_ood.csv from template (if missing)
         3. Ensure skills/__init__.py for symlink compatibility
-        4. Create execution_trace.md / findings.md / plan.md (if missing)
+        4. Create findings.md / plan.md (if missing)
         5. Validate data.csv exists
         """
         workspace = self.workspace_dir
@@ -130,15 +130,6 @@ class HamiltonPlayground(BasePlayground):
                 "Hamilton expects data CSVs in 'input/' subdirectory.\n"
                 "Tip: put your CSVs in 'playground/hamilton/workspace/input/' so they will be auto-seeded."
             )
-
-        # execution_trace.md (L1 — will be reset each round, create initial file)
-        trace_file = workspace / "execution_trace.md"
-        if not trace_file.exists():
-            trace_file.write_text(
-                "# 执行日志\n\n（每轮开始时自动重置）\n",
-                encoding="utf-8",
-            )
-            self.logger.info(f"Created {trace_file}")
 
         # findings.md (L2 — knowledge accumulation, append-only)
         findings_file = workspace / "findings.md"

@@ -3,12 +3,12 @@
 负责单轮的 Agent 迭代。
 
 每轮流程：
-- 系统: 重置 execution_trace.md（L1 工作记忆）
+- 系统: 创建 history/round{N}/trace.md（L1 工作记忆）
 - Agent: 读 plan.md + findings.md（L2），发现方程 → 验证 → 提炼到 L2，调用 finish
 - 系统: 从 finish(task_completed) 判断是否继续
 
 文件规范：
-- execution_trace.md: L1 工作记忆，每轮重置
+- history/round{N}/trace.md: L1 工作记忆，每轮独立
 - findings.md: L2 知识积累，Agent 追加
 - plan.md: L2 战略计划，Agent 全权维护（含 Current Best）
 """
@@ -26,7 +26,7 @@ class RoundExp(BaseExp):
     """单轮实验
 
     负责：
-    1. 重置 L1 工作记忆（execution_trace.md）
+    1. 创建 L1 工作记忆（history/round{N}/trace.md）
     2. Agent 自主执行发现 → 验证 → 提炼闭环
     3. 从 finish(task_completed) 解析停止信号
     """
@@ -46,9 +46,9 @@ class RoundExp(BaseExp):
 
         BaseAgent.set_exp_info(exp_name=self.exp_name, exp_index=self.round_num)
 
-        # 重置 L1
-        self._init_round_files()
+        # 初始化 L1 + 轮次目录
         self._ensure_round_dirs()
+        self._init_trace()
 
         # 记录 L2 文件状态（用于 post-check）
         l2_snapshot = self._snapshot_l2()
@@ -91,15 +91,14 @@ class RoundExp(BaseExp):
         (round_dir / "scripts").mkdir(parents=True, exist_ok=True)
         (round_dir / "results").mkdir(parents=True, exist_ok=True)
 
-    def _init_round_files(self):
-        """重置 L1 工作记忆 — 每轮覆写 execution_trace.md"""
+    def _init_trace(self):
+        """创建 L1 工作记忆 — history/round{N}/trace.md"""
         if not self.run_dir:
             return
 
-        trace_file = self.run_dir / "execution_trace.md"
-        l1_template = f"""# 执行日志
-
-## 第 {self.round_num} 轮
+        trace_file = self.run_dir / "history" / f"round{self.round_num}" / "trace.md"
+        trace_file.parent.mkdir(parents=True, exist_ok=True)
+        l1_template = f"""# 执行日志 — 第 {self.round_num} 轮
 
 ### 操作记录
 （记录执行的脚本、使用的参数、观察到的现象）
@@ -112,7 +111,7 @@ class RoundExp(BaseExp):
 （当前假设、中间观察、思考过程）
 """
         trace_file.write_text(l1_template, encoding="utf-8")
-        self.logger.info(f"Reset execution_trace.md for Round {self.round_num} (L1)")
+        self.logger.info(f"创建 history/round{self.round_num}/trace.md（L1）")
 
     def _read_findings(self) -> str:
         """读取 findings.md（L2 知识）"""

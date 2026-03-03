@@ -6,13 +6,13 @@
 
 ```
 每轮:
-  系统 → 重置 execution_trace.md（L1 工作记忆）
+  系统 → 创建 history/round{N}/trace.md（L1 工作记忆）
   Agent → 读 L2 → 发现方程 → 验证 → 提炼到 L2（findings.md + plan.md）→ finish(satisfied)
   系统 → 解析 satisfied 信号，决定是否继续
 ```
 
 记忆分层：
-- **L1 (execution_trace.md)**：每轮重置的工作记忆（锯齿形）
+- **L1 (history/round{N}/trace.md)**：每轮独立的工作记忆
 - **L2 (plan.md, findings.md)**：只增不减的知识积累（阶梯形）
 
 ## 目录
@@ -22,12 +22,14 @@ workspace/
 ├── task.md                    # 任务描述（只读，含数据路径和评估标准）
 ├── plan.md                    # L2 战略（当前最优 + 策略队列 + 失败方法）
 ├── findings.md                # L2 知识（验证结论 + 实验结果 + 建议）
-├── execution_trace.md         # L1 工作记忆（每轮重置）
 ├── input/                     # 数据文件（只读）
+├── lib/                       # 可复用脚本（跨轮持久）
+│   └── README.md              # 脚本索引
 ├── skills/
 │   └── pysr/                  # PySR API 文档（symlink，只读）
 └── history/
     └── round{N}/
+        ├── trace.md           # L1 工作记忆（每轮独立）
         ├── scripts/           # Agent 写的脚本
         └── results/           # 每轮结果 + 派生数据
 ```
@@ -65,6 +67,7 @@ workspace/
 - [x] 修复双→单 Agent 重构残留（"Eureka 维护"文本、过时常量字段）
 - [x] 添加 L2 post-check（检测 Agent 是否完成 Promotion，warning 级别）
 - [x] README.md 重写（单 Agent + HCC 架构）
+- [x] L1 trace.md 移入 round 目录（不再覆写根目录 execution_trace.md）
 
 ## TODO
 
