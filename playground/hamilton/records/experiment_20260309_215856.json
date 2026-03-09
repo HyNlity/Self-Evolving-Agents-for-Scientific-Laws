@@ -1,0 +1,44 @@
+{
+  "task": "profile: newtonbench\nmodule: m0_gravity\nsystem: simple_system\ndifficulty: easy\nlaw_version: v0\nnoise: 0.0\ncode_assisted: false",
+  "rounds": [
+    {
+      "round": 1,
+      "agent_result": "本轮已完成全部实验与方程发现。\n1. 执行 generate_task_prompt.py 获取 function_signature。\n2. 运行 run_experiment.py 在两组参数下获取运动数据。\n3. 分析数据，初步假设 distance²形式，但评测失败，RMSLE≈0.07。\n4. 修正推断得到真实指数为1.5，常数 K≈6.668e-05。\n5. 第二次 evaluate_submission.py 成功，RMSLE≈2.07e-04，exact_accuracy=1.0，符号等效判定为 true。\n\n<final_law>\ndef discovered_law(mass1, mass2, distance):\n    import math\n    C = 6.668e-05\n    return (C * mass1 * mass2) / math.pow(distance, 1.5)\n</final_law>",
+      "findings": "# 研究发现\n\n## 关键洞察\n（经验证的数据观察和物理关系）\n\n## 实验结果\n| 轮次 | 方法 | 方程 | MSE (训练) | MSE (OOD) | 结论 |\n|------|------|------|-----------|-----------|------|\n\n## 最优方程演化\n（记录最优方程在各轮中的变化过程）\n",
+      "signal": {
+        "round": 1,
+        "satisfied": true,
+        "task_completed": "true",
+        "notes": "本轮已完成全部实验与方程发现。\n1. 执行 generate_task_prompt.py 获取 function_signature。\n2. 运行 run_experiment.py 在两组参数下获取运动数据。\n3. 分析数据，初步假设 distance²形式，但评测失败，RMSLE≈0.07。\n4. 修正推断得到真实指数为1.5，常数 K≈6.668e-05。\n5. 第二次 evaluate_submission.py 成功，RMSLE≈2.07e-04，exact_accuracy=1.0，符号等效判定为 true。\n\n<final_law>\ndef discovered_law(mass1, mass2, distance):\n    import math\n    C = 6.668e-05\n    return (C * mass1 * mass2) / math.pow(distance, 1.5)\n</final_law>",
+        "protocol": {
+          "run_experiment_calls": 2,
+          "run_experiment_success_calls": 2,
+          "evaluate_submission_calls": 2,
+          "evaluate_submission_success_calls": 2,
+          "has_final_law_block": true,
+          "has_discovered_law_signature": true,
+          "expected_function_signature": "def discovered_law(mass1, mass2, distance):",
+          "final_law_signature": "def discovered_law(mass1, mass2, distance):",
+          "signature_match": true,
+          "last_evaluation": {
+            "rmsle": 0.00020744057060517894,
+            "exact_accuracy": 1.0,
+            "symbolic_equivalent": true
+          },
+          "quality_guard": {
+            "require_signature_match": true,
+            "require_finite_rmsle": true,
+            "max_rmsle": 2.0
+          },
+          "violations": []
+        }
+      },
+      "trajectory": {
+        "status": "completed",
+        "steps": 6
+      }
+    }
+  ],
+  "start_time": "2026-03-09T21:58:13.694432",
+  "end_time": "2026-03-09T21:58:56.415260"
+}

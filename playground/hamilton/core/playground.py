@@ -80,11 +80,10 @@ class HamiltonPlayground(BasePlayground):
         """Unified workspace initialization: seed template files + create runtime files.
 
         Steps:
-        1. Copy tools/ template dir (if missing)
-        2. Copy data.csv / data_ood.csv from template (if missing)
-        3. Ensure skills/__init__.py for symlink compatibility
-        4. Create findings.md / plan.md (if missing)
-        5. Validate data.csv exists
+        1. Seed task template into runtime workspace.
+        2. Optionally seed CSV inputs from template.
+        3. Create findings.md / plan.md / lib (if missing).
+        4. Optionally validate that input CSV exists (configurable).
         """
         workspace = self.workspace_dir
         if not workspace:
@@ -92,8 +91,19 @@ class HamiltonPlayground(BasePlayground):
 
         workspace.mkdir(parents=True, exist_ok=True)
 
+        experiment_cfg = self._get_experiment_cfg()
+        template_dir = self._resolve_workspace_template_dir(experiment_cfg)
+        seed_input_csv = bool(experiment_cfg.get("seed_input_csv", True))
+        require_input_csv = bool(experiment_cfg.get("require_input_csv", True))
+
+        self.logger.info(
+            "Hamilton workspace profile: template=%s seed_input_csv=%s require_input_csv=%s",
+            template_dir,
+            seed_input_csv,
+            require_input_csv,
+        )
+
         # --- Phase 1: Seed from template ---
-        template_dir = self._project_root / "playground" / "hamilton" / "workspace"
         if template_dir.exists():
             try:
                 # task.md
@@ -103,33 +113,40 @@ class HamiltonPlayground(BasePlayground):
                     shutil.copy2(src_task, dst_task)
                     self.logger.info("Seeded task.md into workspace")
 
-                # data files → input/ subdirectory
-                input_dir = workspace / "input"
-                input_dir.mkdir(parents=True, exist_ok=True)
-                src_input = template_dir / "input"
-                csv_source = src_input if src_input.exists() else template_dir
-                for src in csv_source.glob("*.csv"):
-                    dst = input_dir / src.name
-                    if not dst.exists():
-                        if src.is_symlink():
-                            link_target = os.readlink(src)
-                            os.symlink(link_target, dst)
-                        else:
-                            shutil.copy2(src, dst)
-                        self.logger.info(f"Seeded input/{src.name}")
+                if seed_input_csv:
+                    # data files → input/ subdirectory
+                    input_dir = workspace / "input"
+                    input_dir.mkdir(parents=True, exist_ok=True)
+                    src_input = template_dir / "input"
+                    csv_source = src_input if src_input.exists() else template_dir
+                    for src in csv_source.glob("*.csv"):
+                        dst = input_dir / src.name
+                        if not dst.exists():
+                            if src.is_symlink():
+                                link_target = os.readlink(src)
+                                os.symlink(link_target, dst)
+                            else:
+                                shutil.copy2(src, dst)
+                            self.logger.info(f"Seeded input/{src.name}")
             except Exception as e:
                 self.logger.warning(f"Failed to seed Hamilton workspace template: {e}", exc_info=True)
+        else:
+            self.logger.warning(
+                "Workspace template directory does not exist: %s. "
+                "Proceeding with runtime file initialization only.",
+                template_dir,
+            )
 
         # --- Phase 3: Create runtime files ---
-        # input/ must have at least one CSV
-        input_dir = workspace / "input"
-        csv_files = list(input_dir.glob("*.csv")) if input_dir.exists() else []
-        if not csv_files:
-            raise FileNotFoundError(
-                f"No CSV data files found in: {input_dir}\n"
-                "Hamilton expects data CSVs in 'input/' subdirectory.\n"
-                "Tip: put your CSVs in 'playground/hamilton/workspace/input/' so they will be auto-seeded."
-            )
+        if require_input_csv:
+            input_dir = workspace / "input"
+            csv_files = list(input_dir.glob("*.csv")) if input_dir.exists() else []
+            if not csv_files:
+                raise FileNotFoundError(
+                    f"No CSV data files found in: {input_dir}\n"
+                    "This profile requires CSV data in 'input/' subdirectory.\n"
+                    "Tip: put CSVs in the configured workspace template input/ so they are auto-seeded."
+                )
 
         # findings.md (L2 — knowledge accumulation, append-only)
         findings_file = workspace / "findings.md"
@@ -159,6 +176,26 @@ class HamiltonPlayground(BasePlayground):
         if not plan_file.exists():
             self._create_plan_file(plan_file, task_description)
             self.logger.info(f"Created {plan_file}")
+
+    def _get_experiment_cfg(self) -> dict:
+        """Get experiment config as dict."""
+        experiment_cfg = getattr(self.config, "experiment", {})
+        if not isinstance(experiment_cfg, dict):
+            return {}
+        return experiment_cfg
+
+    def _resolve_workspace_template_dir(self, experiment_cfg: dict) -> Path:
+        """Resolve workspace template directory.
+
+        Supported values:
+        - relative path (to project root), e.g. playground/hamilton/workspace
+        - absolute path
+        """
+        template_value = experiment_cfg.get("workspace_template", "playground/hamilton/workspace")
+        template_path = Path(str(template_value))
+        if template_path.is_absolute():
+            return template_path
+        return self._project_root / template_path
 
     def setup(self) -> None:
         """初始化组件（复用 BasePlayground.setup）"""
@@ -196,9 +233,7 @@ class HamiltonPlayground(BasePlayground):
             self.experiment_record["task"] = task_description
 
             # 获取最大轮数
-            experiment_cfg = getattr(self.config, 'experiment', {})
-            if not isinstance(experiment_cfg, dict):
-                experiment_cfg = {}
+            experiment_cfg = self._get_experiment_cfg()
             max_rounds = int(experiment_cfg.get('max_rounds', 5) or 5)
 
             self.logger.info(f"Starting Hamilton experiment with {max_rounds} max rounds")

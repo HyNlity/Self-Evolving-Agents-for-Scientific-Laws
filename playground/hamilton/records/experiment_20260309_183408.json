@@ -1,0 +1,31 @@
+{
+  "task": "profile: newtonbench\nmodule: m7_malus_law\nsystem: vanilla_equation\ndifficulty: easy\nlaw_version: v0\nnoise: 0.0\ncode_assisted: false",
+  "rounds": [
+    {
+      "round": 1,
+      "agent_result": "<final_law>\ndef discovered_law(I_0, theta):\n    import math\n    return I_0 * (math.cos(theta) ** -2)\n</final_law>\n\n实验和评测已完成，推断公式与实验数据完全吻合，任务完成。",
+      "findings": "# 研究发现\n\n## 关键洞察\n（经验证的数据观察和物理关系）\n\n## 实验结果\n| 轮次 | 方法 | 方程 | MSE (训练) | MSE (OOD) | 结论 |\n|------|------|------|-----------|-----------|------|\n\n## 最优方程演化\n（记录最优方程在各轮中的变化过程）\n",
+      "signal": {
+        "round": 1,
+        "satisfied": true,
+        "task_completed": "true",
+        "notes": "<final_law>\ndef discovered_law(I_0, theta):\n    import math\n    return I_0 * (math.cos(theta) ** -2)\n</final_law>\n\n实验和评测已完成，推断公式与实验数据完全吻合，任务完成。",
+        "protocol": {
+          "run_experiment_calls": 2,
+          "run_experiment_success_calls": 2,
+          "evaluate_submission_calls": 2,
+          "evaluate_submission_success_calls": 2,
+          "has_final_law_block": true,
+          "has_discovered_law_signature": true,
+          "violations": []
+        }
+      },
+      "trajectory": {
+        "status": "completed",
+        "steps": 3
+      }
+    }
+  ],
+  "start_time": "2026-03-09T18:33:08.167936",
+  "end_time": "2026-03-09T18:34:08.326733"
+}

@@ -1,0 +1,470 @@
+[
+  {
+    "id": "nb_0001_m0_gravity_easy_vanilla_equation_v0_n0p0",
+    "description": "profile: newtonbench\nmodule: m0_gravity\nsystem: vanilla_equation\ndifficulty: easy\nlaw_version: v0\nnoise: 0.0\ncode_assisted: false",
+    "meta": {
+      "profile": "newtonbench",
+      "module": "m0_gravity",
+      "system": "vanilla_equation",
+      "difficulty": "easy",
+      "law_version": "v0",
+      "noise": 0.0,
+      "code_assisted": false
+    }
+  },
+  {
+    "id": "nb_0002_m0_gravity_easy_simple_system_v0_n0p0",
+    "description": "profile: newtonbench\nmodule: m0_gravity\nsystem: simple_system\ndifficulty: easy\nlaw_version: v0\nnoise: 0.0\ncode_assisted: false",
+    "meta": {
+      "profile": "newtonbench",
+      "module": "m0_gravity",
+      "system": "simple_system",
+      "difficulty": "easy",
+      "law_version": "v0",
+      "noise": 0.0,
+      "code_assisted": false
+    }
+  },
+  {
+    "id": "nb_0003_m0_gravity_easy_complex_system_v0_n0p0",
+    "description": "profile: newtonbench\nmodule: m0_gravity\nsystem: complex_system\ndifficulty: easy\nlaw_version: v0\nnoise: 0.0\ncode_assisted: false",
+    "meta": {
+      "profile": "newtonbench",
+      "module": "m0_gravity",
+      "system": "complex_system",
+      "difficulty": "easy",
+      "law_version": "v0",
+      "noise": 0.0,
+      "code_assisted": false
+    }
+  },
+  {
+    "id": "nb_0004_m10_be_distribution_easy_vanilla_equation_v0_n0p0",
+    "description": "profile: newtonbench\nmodule: m10_be_distribution\nsystem: vanilla_equation\ndifficulty: easy\nlaw_version: v0\nnoise: 0.0\ncode_assisted: false",
+    "meta": {
+      "profile": "newtonbench",
+      "module": "m10_be_distribution",
+      "system": "vanilla_equation",
+      "difficulty": "easy",
+      "law_version": "v0",
+      "noise": 0.0,
+      "code_assisted": false
+    }
+  },
+  {
+    "id": "nb_0005_m10_be_distribution_easy_simple_system_v0_n0p0",
+    "description": "profile: newtonbench\nmodule: m10_be_distribution\nsystem: simple_system\ndifficulty: easy\nlaw_version: v0\nnoise: 0.0\ncode_assisted: false",
+    "meta": {
+      "profile": "newtonbench",
+      "module": "m10_be_distribution",
+      "system": "simple_system",
+      "difficulty": "easy",
+      "law_version": "v0",
+      "noise": 0.0,
+      "code_assisted": false
+    }
+  },
+  {
+    "id": "nb_0006_m10_be_distribution_easy_complex_system_v0_n0p0",
+    "description": "profile: newtonbench\nmodule: m10_be_distribution\nsystem: complex_system\ndifficulty: easy\nlaw_version: v0\nnoise: 0.0\ncode_assisted: false",
+    "meta": {
+      "profile": "newtonbench",
+      "module": "m10_be_distribution",
+      "system": "complex_system",
+      "difficulty": "easy",
+      "law_version": "v0",
+      "noise": 0.0,
+      "code_assisted": false
+    }
+  },
+  {
+    "id": "nb_0007_m11_heat_transfer_easy_vanilla_equation_v0_n0p0",
+    "description": "profile: newtonbench\nmodule: m11_heat_transfer\nsystem: vanilla_equation\ndifficulty: easy\nlaw_version: v0\nnoise: 0.0\ncode_assisted: false",
+    "meta": {
+      "profile": "newtonbench",
+      "module": "m11_heat_transfer",
+      "system": "vanilla_equation",
+      "difficulty": "easy",
+      "law_version": "v0",
+      "noise": 0.0,
+      "code_assisted": false
+    }
+  },
+  {
+    "id": "nb_0008_m11_heat_transfer_easy_simple_system_v0_n0p0",
+    "description": "profile: newtonbench\nmodule: m11_heat_transfer\nsystem: simple_system\ndifficulty: easy\nlaw_version: v0\nnoise: 0.0\ncode_assisted: false",
+    "meta": {
+      "profile": "newtonbench",
+      "module": "m11_heat_transfer",
+      "system": "simple_system",
+      "difficulty": "easy",
+      "law_version": "v0",
+      "noise": 0.0,
+      "code_assisted": false
+    }
+  },
+  {
+    "id": "nb_0009_m11_heat_transfer_easy_complex_system_v0_n0p0",
+    "description": "profile: newtonbench\nmodule: m11_heat_transfer\nsystem: complex_system\ndifficulty: easy\nlaw_version: v0\nnoise: 0.0\ncode_assisted: false",
+    "meta": {
+      "profile": "newtonbench",
+      "module": "m11_heat_transfer",
+      "system": "complex_system",
+      "difficulty": "easy",
+      "law_version": "v0",
+      "noise": 0.0,
+      "code_assisted": false
+    }
+  },
+  {
+    "id": "nb_0010_m1_coulomb_force_easy_vanilla_equation_v0_n0p0",
+    "description": "profile: newtonbench\nmodule: m1_coulomb_force\nsystem: vanilla_equation\ndifficulty: easy\nlaw_version: v0\nnoise: 0.0\ncode_assisted: false",
+    "meta": {
+      "profile": "newtonbench",
+      "module": "m1_coulomb_force",
+      "system": "vanilla_equation",
+      "difficulty": "easy",
+      "law_version": "v0",
+      "noise": 0.0,
+      "code_assisted": false
+    }
+  },
+  {
+    "id": "nb_0011_m1_coulomb_force_easy_simple_system_v0_n0p0",
+    "description": "profile: newtonbench\nmodule: m1_coulomb_force\nsystem: simple_system\ndifficulty: easy\nlaw_version: v0\nnoise: 0.0\ncode_assisted: false",
+    "meta": {
+      "profile": "newtonbench",
+      "module": "m1_coulomb_force",
+      "system": "simple_system",
+      "difficulty": "easy",
+      "law_version": "v0",
+      "noise": 0.0,
+      "code_assisted": false
+    }
+  },
+  {
+    "id": "nb_0012_m1_coulomb_force_easy_complex_system_v0_n0p0",
+    "description": "profile: newtonbench\nmodule: m1_coulomb_force\nsystem: complex_system\ndifficulty: easy\nlaw_version: v0\nnoise: 0.0\ncode_assisted: false",
+    "meta": {
+      "profile": "newtonbench",
+      "module": "m1_coulomb_force",
+      "system": "complex_system",
+      "difficulty": "easy",
+      "law_version": "v0",
+      "noise": 0.0,
+      "code_assisted": false
+    }
+  },
+  {
+    "id": "nb_0013_m2_magnetic_force_easy_vanilla_equation_v0_n0p0",
+    "description": "profile: newtonbench\nmodule: m2_magnetic_force\nsystem: vanilla_equation\ndifficulty: easy\nlaw_version: v0\nnoise: 0.0\ncode_assisted: false",
+    "meta": {
+      "profile": "newtonbench",
+      "module": "m2_magnetic_force",
+      "system": "vanilla_equation",
+      "difficulty": "easy",
+      "law_version": "v0",
+      "noise": 0.0,
+      "code_assisted": false
+    }
+  },
+  {
+    "id": "nb_0014_m2_magnetic_force_easy_simple_system_v0_n0p0",
+    "description": "profile: newtonbench\nmodule: m2_magnetic_force\nsystem: simple_system\ndifficulty: easy\nlaw_version: v0\nnoise: 0.0\ncode_assisted: false",
+    "meta": {
+      "profile": "newtonbench",
+      "module": "m2_magnetic_force",
+      "system": "simple_system",
+      "difficulty": "easy",
+      "law_version": "v0",
+      "noise": 0.0,
+      "code_assisted": false
+    }
+  },
+  {
+    "id": "nb_0015_m2_magnetic_force_easy_complex_system_v0_n0p0",
+    "description": "profile: newtonbench\nmodule: m2_magnetic_force\nsystem: complex_system\ndifficulty: easy\nlaw_version: v0\nnoise: 0.0\ncode_assisted: false",
+    "meta": {
+      "profile": "newtonbench",
+      "module": "m2_magnetic_force",
+      "system": "complex_system",
+      "difficulty": "easy",
+      "law_version": "v0",
+      "noise": 0.0,
+      "code_assisted": false
+    }
+  },
+  {
+    "id": "nb_0016_m3_fourier_law_easy_vanilla_equation_v0_n0p0",
+    "description": "profile: newtonbench\nmodule: m3_fourier_law\nsystem: vanilla_equation\ndifficulty: easy\nlaw_version: v0\nnoise: 0.0\ncode_assisted: false",
+    "meta": {
+      "profile": "newtonbench",
+      "module": "m3_fourier_law",
+      "system": "vanilla_equation",
+      "difficulty": "easy",
+      "law_version": "v0",
+      "noise": 0.0,
+      "code_assisted": false
+    }
+  },
+  {
+    "id": "nb_0017_m3_fourier_law_easy_simple_system_v0_n0p0",
+    "description": "profile: newtonbench\nmodule: m3_fourier_law\nsystem: simple_system\ndifficulty: easy\nlaw_version: v0\nnoise: 0.0\ncode_assisted: false",
+    "meta": {
+      "profile": "newtonbench",
+      "module": "m3_fourier_law",
+      "system": "simple_system",
+      "difficulty": "easy",
+      "law_version": "v0",
+      "noise": 0.0,
+      "code_assisted": false
+    }
+  },
+  {
+    "id": "nb_0018_m3_fourier_law_easy_complex_system_v0_n0p0",
+    "description": "profile: newtonbench\nmodule: m3_fourier_law\nsystem: complex_system\ndifficulty: easy\nlaw_version: v0\nnoise: 0.0\ncode_assisted: false",
+    "meta": {
+      "profile": "newtonbench",
+      "module": "m3_fourier_law",
+      "system": "complex_system",
+      "difficulty": "easy",
+      "law_version": "v0",
+      "noise": 0.0,
+      "code_assisted": false
+    }
+  },
+  {
+    "id": "nb_0019_m4_snell_law_easy_vanilla_equation_v0_n0p0",
+    "description": "profile: newtonbench\nmodule: m4_snell_law\nsystem: vanilla_equation\ndifficulty: easy\nlaw_version: v0\nnoise: 0.0\ncode_assisted: false",
+    "meta": {
+      "profile": "newtonbench",
+      "module": "m4_snell_law",
+      "system": "vanilla_equation",
+      "difficulty": "easy",
+      "law_version": "v0",
+      "noise": 0.0,
+      "code_assisted": false
+    }
+  },
+  {
+    "id": "nb_0020_m4_snell_law_easy_simple_system_v0_n0p0",
+    "description": "profile: newtonbench\nmodule: m4_snell_law\nsystem: simple_system\ndifficulty: easy\nlaw_version: v0\nnoise: 0.0\ncode_assisted: false",
+    "meta": {
+      "profile": "newtonbench",
+      "module": "m4_snell_law",
+      "system": "simple_system",
+      "difficulty": "easy",
+      "law_version": "v0",
+      "noise": 0.0,
+      "code_assisted": false
+    }
+  },
+  {
+    "id": "nb_0021_m4_snell_law_easy_complex_system_v0_n0p0",
+    "description": "profile: newtonbench\nmodule: m4_snell_law\nsystem: complex_system\ndifficulty: easy\nlaw_version: v0\nnoise: 0.0\ncode_assisted: false",
+    "meta": {
+      "profile": "newtonbench",
+      "module": "m4_snell_law",
+      "system": "complex_system",
+      "difficulty": "easy",
+      "law_version": "v0",
+      "noise": 0.0,
+      "code_assisted": false
+    }
+  },
+  {
+    "id": "nb_0022_m5_radioactive_decay_easy_vanilla_equation_v0_n0p0",
+    "description": "profile: newtonbench\nmodule: m5_radioactive_decay\nsystem: vanilla_equation\ndifficulty: easy\nlaw_version: v0\nnoise: 0.0\ncode_assisted: false",
+    "meta": {
+      "profile": "newtonbench",
+      "module": "m5_radioactive_decay",
+      "system": "vanilla_equation",
+      "difficulty": "easy",
+      "law_version": "v0",
+      "noise": 0.0,
+      "code_assisted": false
+    }
+  },
+  {
+    "id": "nb_0023_m5_radioactive_decay_easy_simple_system_v0_n0p0",
+    "description": "profile: newtonbench\nmodule: m5_radioactive_decay\nsystem: simple_system\ndifficulty: easy\nlaw_version: v0\nnoise: 0.0\ncode_assisted: false",
+    "meta": {
+      "profile": "newtonbench",
+      "module": "m5_radioactive_decay",
+      "system": "simple_system",
+      "difficulty": "easy",
+      "law_version": "v0",
+      "noise": 0.0,
+      "code_assisted": false
+    }
+  },
+  {
+    "id": "nb_0024_m5_radioactive_decay_easy_complex_system_v0_n0p0",
+    "description": "profile: newtonbench\nmodule: m5_radioactive_decay\nsystem: complex_system\ndifficulty: easy\nlaw_version: v0\nnoise: 0.0\ncode_assisted: false",
+    "meta": {
+      "profile": "newtonbench",
+      "module": "m5_radioactive_decay",
+      "system": "complex_system",
+      "difficulty": "easy",
+      "law_version": "v0",
+      "noise": 0.0,
+      "code_assisted": false
+    }
+  },
+  {
+    "id": "nb_0025_m6_underdamped_harmonic_easy_vanilla_equation_v0_n0p0",
+    "description": "profile: newtonbench\nmodule: m6_underdamped_harmonic\nsystem: vanilla_equation\ndifficulty: easy\nlaw_version: v0\nnoise: 0.0\ncode_assisted: false",
+    "meta": {
+      "profile": "newtonbench",
+      "module": "m6_underdamped_harmonic",
+      "system": "vanilla_equation",
+      "difficulty": "easy",
+      "law_version": "v0",
+      "noise": 0.0,
+      "code_assisted": false
+    }
+  },
+  {
+    "id": "nb_0026_m6_underdamped_harmonic_easy_simple_system_v0_n0p0",
+    "description": "profile: newtonbench\nmodule: m6_underdamped_harmonic\nsystem: simple_system\ndifficulty: easy\nlaw_version: v0\nnoise: 0.0\ncode_assisted: false",
+    "meta": {
+      "profile": "newtonbench",
+      "module": "m6_underdamped_harmonic",
+      "system": "simple_system",
+      "difficulty": "easy",
+      "law_version": "v0",
+      "noise": 0.0,
+      "code_assisted": false
+    }
+  },
+  {
+    "id": "nb_0027_m6_underdamped_harmonic_easy_complex_system_v0_n0p0",
+    "description": "profile: newtonbench\nmodule: m6_underdamped_harmonic\nsystem: complex_system\ndifficulty: easy\nlaw_version: v0\nnoise: 0.0\ncode_assisted: false",
+    "meta": {
+      "profile": "newtonbench",
+      "module": "m6_underdamped_harmonic",
+      "system": "complex_system",
+      "difficulty": "easy",
+      "law_version": "v0",
+      "noise": 0.0,
+      "code_assisted": false
+    }
+  },
+  {
+    "id": "nb_0028_m7_malus_law_easy_vanilla_equation_v0_n0p0",
+    "description": "profile: newtonbench\nmodule: m7_malus_law\nsystem: vanilla_equation\ndifficulty: easy\nlaw_version: v0\nnoise: 0.0\ncode_assisted: false",
+    "meta": {
+      "profile": "newtonbench",
+      "module": "m7_malus_law",
+      "system": "vanilla_equation",
+      "difficulty": "easy",
+      "law_version": "v0",
+      "noise": 0.0,
+      "code_assisted": false
+    }
+  },
+  {
+    "id": "nb_0029_m7_malus_law_easy_simple_system_v0_n0p0",
+    "description": "profile: newtonbench\nmodule: m7_malus_law\nsystem: simple_system\ndifficulty: easy\nlaw_version: v0\nnoise: 0.0\ncode_assisted: false",
+    "meta": {
+      "profile": "newtonbench",
+      "module": "m7_malus_law",
+      "system": "simple_system",
+      "difficulty": "easy",
+      "law_version": "v0",
+      "noise": 0.0,
+      "code_assisted": false
+    }
+  },
+  {
+    "id": "nb_0030_m7_malus_law_easy_complex_system_v0_n0p0",
+    "description": "profile: newtonbench\nmodule: m7_malus_law\nsystem: complex_system\ndifficulty: easy\nlaw_version: v0\nnoise: 0.0\ncode_assisted: false",
+    "meta": {
+      "profile": "newtonbench",
+      "module": "m7_malus_law",
+      "system": "complex_system",
+      "difficulty": "easy",
+      "law_version": "v0",
+      "noise": 0.0,
+      "code_assisted": false
+    }
+  },
+  {
+    "id": "nb_0031_m8_sound_speed_easy_vanilla_equation_v0_n0p0",
+    "description": "profile: newtonbench\nmodule: m8_sound_speed\nsystem: vanilla_equation\ndifficulty: easy\nlaw_version: v0\nnoise: 0.0\ncode_assisted: false",
+    "meta": {
+      "profile": "newtonbench",
+      "module": "m8_sound_speed",
+      "system": "vanilla_equation",
+      "difficulty": "easy",
+      "law_version": "v0",
+      "noise": 0.0,
+      "code_assisted": false
+    }
+  },
+  {
+    "id": "nb_0032_m8_sound_speed_easy_simple_system_v0_n0p0",
+    "description": "profile: newtonbench\nmodule: m8_sound_speed\nsystem: simple_system\ndifficulty: easy\nlaw_version: v0\nnoise: 0.0\ncode_assisted: false",
+    "meta": {
+      "profile": "newtonbench",
+      "module": "m8_sound_speed",
+      "system": "simple_system",
+      "difficulty": "easy",
+      "law_version": "v0",
+      "noise": 0.0,
+      "code_assisted": false
+    }
+  },
+  {
+    "id": "nb_0033_m8_sound_speed_easy_complex_system_v0_n0p0",
+    "description": "profile: newtonbench\nmodule: m8_sound_speed\nsystem: complex_system\ndifficulty: easy\nlaw_version: v0\nnoise: 0.0\ncode_assisted: false",
+    "meta": {
+      "profile": "newtonbench",
+      "module": "m8_sound_speed",
+      "system": "complex_system",
+      "difficulty": "easy",
+      "law_version": "v0",
+      "noise": 0.0,
+      "code_assisted": false
+    }
+  },
+  {
+    "id": "nb_0034_m9_hooke_law_easy_vanilla_equation_v0_n0p0",
+    "description": "profile: newtonbench\nmodule: m9_hooke_law\nsystem: vanilla_equation\ndifficulty: easy\nlaw_version: v0\nnoise: 0.0\ncode_assisted: false",
+    "meta": {
+      "profile": "newtonbench",
+      "module": "m9_hooke_law",
+      "system": "vanilla_equation",
+      "difficulty": "easy",
+      "law_version": "v0",
+      "noise": 0.0,
+      "code_assisted": false
+    }
+  },
+  {
+    "id": "nb_0035_m9_hooke_law_easy_simple_system_v0_n0p0",
+    "description": "profile: newtonbench\nmodule: m9_hooke_law\nsystem: simple_system\ndifficulty: easy\nlaw_version: v0\nnoise: 0.0\ncode_assisted: false",
+    "meta": {
+      "profile": "newtonbench",
+      "module": "m9_hooke_law",
+      "system": "simple_system",
+      "difficulty": "easy",
+      "law_version": "v0",
+      "noise": 0.0,
+      "code_assisted": false
+    }
+  },
+  {
+    "id": "nb_0036_m9_hooke_law_easy_complex_system_v0_n0p0",
+    "description": "profile: newtonbench\nmodule: m9_hooke_law\nsystem: complex_system\ndifficulty: easy\nlaw_version: v0\nnoise: 0.0\ncode_assisted: false",
+    "meta": {
+      "profile": "newtonbench",
+      "module": "m9_hooke_law",
+      "system": "complex_system",
+      "difficulty": "easy",
+      "law_version": "v0",
+      "noise": 0.0,
+      "code_assisted": false
+    }
+  }
+]

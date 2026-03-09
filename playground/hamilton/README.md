@@ -1,164 +1,212 @@
-# Hamilton - 符号回归 Agent
+# Hamilton Playground (NewtonBench-Ready)
 
-Hamilton 是基于 EvoMaster 框架的符号回归（Symbolic Regression）Agent，专门用于在**过完备变量**环境下发现数学方程。
+Hamilton 是 EvoMaster 中用于“科学规律发现”的单 Agent playground。  
+当前版本重点支持 **NewtonBench**：通过 `prompt + skill` 驱动交互实验、规律假设、评测闭环，而不是把 benchmark 逻辑硬编码到 core。
 
-## 架构
+## 1. 目标与设计原则
 
-单 Agent + HCC（Hierarchical Cognitive Caching）分层记忆，四阶段闭环迭代。
+### 目标
+1. 在不分叉 playground 的前提下，用 Hamilton 主线跑 NewtonBench。
+2. 让 Agent 在任务内完成“假设 -> 实验 -> 评测 -> 收敛”的闭环。
+3. 产出可汇总、可复盘、可比较的结果（协议合规 + 质量指标）。
 
-```
-┌─────────────────────────────────────────────────────┐
-│                HamiltonPlayground                    │
-│              (多轮循环编排 + L2 post-check)           │
-└─────────────────────────────────────────────────────┘
-                          │
-                          ▼
-┌─────────────────────────────────────────────────────┐
-│                     RoundExp                         │
-│  系统: 重置 L1 → Agent 执行 → 解析 signal → post-check │
-└─────────────────────────────────────────────────────┘
-                          │
-                          ▼
-┌─────────────────────────────────────────────────────┐
-│                  单 Agent 闭环                        │
-│  Discovery → Verification → Promotion → Finish       │
-│  (变量分析/PySR/拟合) (残差/OOD) (写L2) (signal)      │
-└─────────────────────────────────────────────────────┘
-```
+### 设计原则
+1. **单 Agent**：尽量减少多 Agent 协调开销。
+2. **Skill 驱动**：环境交互和评测通过 `newtonbench` skill 脚本完成。
+3. **最小系统职责**：系统做编排和护栏，不做任务语义推理。
+4. **可追踪**：运行日志、轨迹、结构化 summary 全部落盘。
 
-### 每轮流程
+## 2. 架构概览
 
-```
-Round N 开始
-    │
-    ├─ 系统: 创建 history/round{N}/trace.md（L1 工作记忆）
-    ├─ 系统: 快照 L2 文件 mtime（用于 post-check）
-    │
-    ├─ Agent 执行（四阶段闭环）
-    │     ├─ Phase 1 Discovery: 读 L2 → 变量分析 → 拟合/PySR
-    │     ├─ Phase 2 Verification: 残差分析 → OOD 验证
-    │     ├─ Phase 3 Promotion: 提炼结论到 findings.md + plan.md
-    │     └─ Phase 4 Finish: 发出 satisfied 信号
-    │
-    ├─ 系统: 解析 satisfied 信号
-    ├─ 系统: L2 post-check（检测 findings.md / plan.md 是否更新）
-    │
-Round N 结束 → satisfied=true ? 停止 : 进入 Round N+1
+```text
+run.py
+  -> HamiltonPlayground
+       -> RoundExp
+            -> Agent (LLM + tools + skills)
+                 -> use_skill(run_script)
+                      -> newtonbench scripts
+                           - generate_task_prompt.py
+                           - run_experiment.py
+                           - evaluate_submission.py
 ```
 
-### HCC 分层记忆
+### 组件职责
+- `run.py`
+  - 任务入口（`--task` / `--task-file`）
+  - 运行目录管理（`runs/<agent>_<timestamp>/...`）
+- `HamiltonPlayground`
+  - workspace 初始化
+  - 多轮编排（NewtonBench profile 当前默认 `max_rounds: 1`）
+  - 记录 `playground/hamilton/records/experiment_*.json`
+- `RoundExp`
+  - 单轮执行
+  - 从 `finish(task_completed=...)` 解析停止信号
+  - 执行 NewtonBench 协议与质量护栏（如签名校验、RMSLE 阈值）
+- `newtonbench` skill
+  - 对 NewtonBench 环境的统一桥接，不侵入 core
 
-| 层级 | 文件 | 生命周期 | 内容 |
-|------|------|----------|------|
-| **L1** | `history/round{N}/trace.md` | 每轮独立 | 当前轮的操作记录、指标、工作笔记 |
-| **L2** | `plan.md` | 持久积累（阶梯形） | 战略计划、当前最优、策略队列、失败方法 |
-| **L2** | `findings.md` | 持久积累（阶梯形） | 验证结论、实验结果表、最优方程演化 |
+## 3. NewtonBench 任务数据流
 
-L2 文件驱动跨轮知识传递：Agent 每轮读取 L2 → 基于历史做决策 → 将新发现提炼回 L2。
-
----
-
-## 文件结构
-
-```
-playground/hamilton/
-├── core/
-│   ├── playground.py      # HamiltonPlayground: 多轮编排 + workspace 初始化
-│   ├── exp.py             # RoundExp: 单轮执行 + signal 解析 + L2 post-check
-│   └── constants.py       # Signal markers、字段定义
-├── prompts/
-│   ├── hamilton_system.txt # Agent 系统提示（四阶段协议 + HCC 规范）
-│   └── hamilton_user.txt   # Agent 用户提示（任务注入）
-├── benchmarks/
-│   └── viv/               # VIV 多风速基准数据 + 任务描述
-├── workspace/             # 模板目录（自动 seed 到 run workspace）
-│   ├── task.md            # 任务描述（含数据路径和评估标准）
-│   └── input/             # 数据文件（CSV）
-├── README.md
-└── TODO.md
-```
-
-### Run Workspace（运行时）
-
-```
-{run_dir}/workspace/
-├── task.md                # 任务描述（只读）
-├── plan.md                # L2 战略（当前最优 + 策略队列 + 失败方法）
-├── findings.md            # L2 知识（验证结论 + 实验结果 + 最优方程演化）
-├── input/                 # 数据文件（只读）
-├── lib/                   # 可复用脚本（跨轮持久）
-│   └── README.md          # 脚本索引
-└── history/
-    └── round{N}/
-        ├── trace.md       # L1 工作记忆（每轮独立）
-        ├── scripts/       # Agent 写的脚本
-        └── results/       # 每轮结果 + 派生数据
-```
-
----
-
-## 核心组件
-
-### PySR Skill (`evomaster/skills/pysr/`)
-- PySR API 速查和模板指南
-- Agent 通过 `use_skill pysr get_info` / `get_reference` 按需加载
-
-### Evo Protocol Skill (`evomaster/skills/evo-protocol/`)
-- 科学迭代协议（假设 → 实验 → 记录 → 迭代）
-- plan 模板（含 Current Best markers）、完整规则、收敛指南
-
-### Signal 机制
-- Agent 调用 `finish(message="...", task_completed="true"/"false")` 结束本轮
-- 系统从 `task_completed` 判断是否停止迭代（`"true"` = 停止，`"false"` = 继续）
-- 如果 Agent 未调用 finish，系统默认继续迭代并输出 warning
-
----
-
-## 使用方法
-
-```bash
-# 准备数据：将 CSV 放入 workspace/input/
-cp your_data.csv playground/hamilton/workspace/input/
-
-# 编写任务描述
-vim playground/hamilton/workspace/task.md
-
-# 运行
-python run.py --agent hamilton --task "发现数据中的方程"
-
-# 指定 run 目录
-python run.py --agent hamilton --task "task" --run-dir runs/my_experiment
-```
-
-### 配置
-
-修改 `configs/hamilton/config.yaml`：
+### Step A: 任务输入
+任务描述建议包含：
 
 ```yaml
-agent:
-  max_turns: 100      # 单轮最大工具调用次数
-
-experiment:
-  max_rounds: 10      # 最大迭代轮数
+profile: newtonbench
+module: m0_gravity
+system: vanilla_equation
+difficulty: easy
+law_version: v0
+noise: 0.0
+code_assisted: false
 ```
+
+### Step B: Agent 执行动作
+推荐动作序列：
+1. `generate_task_prompt.py` 获取 `function_signature` 与任务提示。
+2. `run_experiment.py` 发起实验（每次最多 20 组输入）。
+3. 形成候选方程后调用 `evaluate_submission.py` 获取评测。
+4. 在 `finish.message` 中输出 `<final_law>...</final_law>` 并设置 `task_completed`。
+
+### Step C: 系统护栏判定
+`RoundExp` 会在 `task_completed="true"` 前做协议检查，核心包含：
+1. 至少一次成功的 `run_experiment.py`。
+2. 至少一次成功的 `evaluate_submission.py`。
+3. `finish.message` 包含 `<final_law>def discovered_law(...)</final_law>`。
+4. 可选质量护栏：签名匹配、RMSLE 有限、RMSLE 不超过阈值。
+
+如果违规，系统会把 `satisfied` 改为 `false`，并在 `signal.protocol.violations` 记录原因。
+
+## 4. 目录结构（当前关键文件）
+
+```text
+playground/hamilton/
+├── core/
+│   ├── playground.py                    # HamiltonPlayground
+│   └── exp.py                           # RoundExp + protocol guard
+├── prompts/
+│   ├── hamilton_newtonbench_system.txt # NewtonBench 系统提示词
+│   └── hamilton_newtonbench_user.txt   # NewtonBench 用户提示词
+├── workspace_newtonbench/
+│   └── task.md                          # NewtonBench 任务模板
+├── tasks/
+│   └── *.json                           # 批量 task-file（可选）
+└── records/
+    └── experiment_*.json                # 每次实验记录
+
+evomaster/skills/newtonbench/
+├── scripts/
+│   ├── generate_task_prompt.py
+│   ├── run_experiment.py
+│   └── evaluate_submission.py
+└── references/protocol.md
+
+scripts/newtonbench/
+├── generate_hamilton_tasks.py           # 生成批量任务
+└── summarize_hamilton_run.py            # 汇总 run 结果
+```
+
+## 5. 快速开始
+
+### 5.1 环境变量
+
+```bash
+export OPENAI_API_KEY="<your-key>"
+export OPENAI_BASE_URL="https://llm.dp.tech"   # 如使用兼容网关
+```
+
+### 5.2 单任务运行
+
+```bash
+python run.py --agent hamilton \
+  --config configs/hamilton/newtonbench.yaml \
+  --task "profile: newtonbench
+module: m0_gravity
+system: vanilla_equation
+difficulty: easy
+law_version: v0
+noise: 0.0
+code_assisted: false"
+```
+
+### 5.3 批量任务（推荐先跑 easy36）
+
+1. 生成任务文件
+
+```bash
+python scripts/newtonbench/generate_hamilton_tasks.py \
+  --output playground/hamilton/tasks/newtonbench_easy36.json \
+  --modules all \
+  --systems vanilla_equation,simple_system,complex_system \
+  --difficulties easy \
+  --law-versions v0 \
+  --noise-levels 0.0
+```
+
+2. 执行批量运行
+
+```bash
+python run.py --agent hamilton \
+  --config configs/hamilton/newtonbench.yaml \
+  --task-file playground/hamilton/tasks/newtonbench_easy36.json
+```
+
+3. 汇总结果
+
+```bash
+RUN_DIR=$(ls -1dt runs/hamilton_* | head -n1)
+python scripts/newtonbench/summarize_hamilton_run.py \
+  --run-dir "$RUN_DIR" \
+  --task-file playground/hamilton/tasks/newtonbench_easy36.json \
+  --auto-evaluate
+```
+
+## 6. 输出产物说明
+
+运行后会生成：
+
+```text
+runs/hamilton_YYYYMMDD_HHMMSS/
+├── config.yaml
+├── logs/
+│   └── <task_id>.log
+├── trajectories/
+│   └── <task_id>/trajectory.json
+├── workspaces/
+│   └── <task_id>/...
+├── newtonbench_summary.json
+└── newtonbench_trials.csv
+```
+
+`newtonbench_summary.json` 关键字段：
+- `total_tasks`, `completed_tasks`
+- `task_completed_true`, `task_completed_false`
+- `with_run_experiment_success`, `with_evaluate_success`
+- `protocol_core_ok`, `protocol_full_ok`
+- `avg_exact_accuracy`, `avg_rmsle`, `avg_total_tokens`
+
+## 7. 当前已实现能力
+
+1. NewtonBench skill 全链路（生成任务提示 / 运行实验 / 提交评测）。
+2. 非标准 function-calling 网关兼容（文本 JSON 回收 tool call）。
+3. 协议护栏落地（完成前必须满足实验与评测约束）。
+4. 批量任务生成与结果汇总脚本。
+5. 质量护栏验证样本已跑通（低质量样本会被阻断为 `task_completed=false`）。
+
+## 8. 已知限制
+
+1. 当前 `max_rounds` 在 NewtonBench profile 下为 `1`，复杂题探索深度有限。
+2. easy36 baseline 中仍存在高 RMSLE 与函数签名不匹配样本。
+3. `playground/hamilton/records/` 与 run 目录会快速增长，建议定期归档。
+
+## 9. 开发建议
+
+1. 继续 Phase 8 第二轮改造：基于失败样本强化提示词约束（尤其是签名与评测复述）。
+2. 增加“失败重试 + 断点续跑”批量执行层，支撑 324 题 full benchmark。
+3. 补充结构化工件落盘（每轮实验输入、输出、最后一次评测 JSON），减少后处理对日志解析的依赖。
 
 ---
 
-## 设计理念
-
-### 外部化记忆（HCC）
-不依赖 Agent 内部 memory，用文件作为持久化知识库：
-- L1 每轮重置，避免上下文膨胀
-- L2 持久积累，确保知识不丢失
-- 人类可阅读、检查和干预
-
-### 单 Agent 闭环
-一个 Agent 完成发现 → 验证 → 提炼全流程，避免多 Agent 间信息损耗。
-
-### 系统最小职责
-系统只做三件事：重置 L1、解析 satisfied 信号、L2 post-check。所有语义决策由 Agent 自主完成。
-
-### 可调试性
-- 每轮脚本保存到 `history/round{N}/scripts/`
-- L2 文件记录完整实验演化过程
-- L2 post-check 提前发现 Agent 跳过 Promotion 的问题
+如需快速定位整体计划与实验结论，请优先查看：
+- `task_plan.md`
+- `findings.md`
+- `progress.md`

@@ -83,3 +83,253 @@
 
 ## Visual/Browser Findings
 - N/A（本任务不涉及图片/浏览器）
+
+## NewtonBench 调研（2026-03-09）
+
+### 论文与基准关键信息
+- NEWTONBENCH 共 324 个任务：108 条 shifted laws × 3 类系统设置（Vanilla / Simple / Complex），覆盖 12 个物理域。
+- 任务从“静态表格拟合”改为“交互式模型探索”：Agent 需主动发起实验，收集 I/O，再推断隐藏 target law。
+- 交互协议（Appendix C）核心约束：
+  - 每轮只允许一个动作：`<run_experiment>` 或 `<python>` 或 `<final_law>`（无 code-assist 时不含 `<python>`）。
+  - 最多 10 轮实验。
+  - 每次实验最多 20 组输入参数。
+  - 最终答案必须是 `<final_law>def discovered_law(...): ...</final_law>`。
+- 评测指标：
+  - Symbolic Accuracy（SA）：与 ground-truth 结构等价（常数值可忽略），论文采用 LLM-as-a-judge（98.3% human agreement）。
+  - RMSLE：在独立 5000 点采样集上评估数据拟合质量。
+- 论文附录给出：
+  - 系统提示模板（Vanilla / Code-Assisted）
+  - 各域采样分布（用于 RMSLE）
+  - 每题预算（10 rounds、每轮最多 20 组输入）
+
+### 与当前 Hamilton 架构的对照
+- 可直接复用：
+  - `run.py` 的单任务/批任务调度与 run_dir 隔离工作区机制
+  - `BasePlayground` 的 agent+session+trajectory 生命周期
+  - `RoundExp` 的轮次循环框架与 `finish` 信号停机机制
+- 关键不匹配：
+  - Hamilton 当前是“给定 CSV 静态拟合（PySR 主导）”，NewtonBench 需要“黑盒交互实验工具 + 增量采样”。
+  - 当前无 `run_experiment` 语义工具，只有 `execute_bash`/`finish` 等通用工具。
+  - 当前评测链路没有 SA 判等和 RMSLE（5000 点、按域采样）的基准实现。
+  - 当前提示词强调多阶段研究记录（HCC/L1-L2），与论文 Appendix C 的严格 tag 协议不一致。
+
+### 落地策略初稿（已废弃）
+- 早期方案曾考虑独立 `newtonbench` playground，但已被用户约束否决。
+- 当前生效路线：仅在 `hamilton` playground 内扩展 profile + prompt + skill，不再新增平行 playground。
+
+### 用户约束更新（2026-03-09）
+- 用户明确要求：**不能抛弃或旁路 Hamilton playground**；必须在现有“单 Agent + 提示词/skill 驱动”的架构上扩展 NewtonBench 能力。
+- 这意味着后续方案应优先：
+  - 复用 `playground/hamilton/core/playground.py` 和 `RoundExp` 的单 Agent 多轮框架；
+  - 将 NewtonBench 的任务协议能力下沉为“可配置任务 profile + skill 工具链”，而非新建平行 playground 分叉。
+
+### 第一批代码改造完成（2026-03-09）
+- `playground/hamilton/core/playground.py` 已改为 profile 化 workspace 初始化：
+  - 新增可配置项：`workspace_template`、`seed_input_csv`、`require_input_csv`；
+  - 默认行为兼容旧 VIV 流程（默认仍 seed CSV 且校验 CSV）；
+  - NewtonBench profile 可关闭 CSV 强依赖。
+- 新增 `evomaster/skills/newtonbench/` skill 骨架：
+  - `scripts/generate_task_prompt.py`
+  - `scripts/run_experiment.py`
+  - `scripts/evaluate_submission.py`
+  - `references/protocol.md`
+- 新增 Hamilton NewtonBench 配置与提示词：
+  - `configs/hamilton/newtonbench.yaml`（仍是 `--agent hamilton`）
+  - `playground/hamilton/prompts/hamilton_newtonbench_system.txt`
+  - `playground/hamilton/prompts/hamilton_newtonbench_user.txt`
+  - `playground/hamilton/workspace_newtonbench/task.md`
+- README 已补充 NewtonBench profile 启动命令（同 playground，不分叉）。
+
+### 已知验证限制
+- 依赖缺口已补齐（见下方 smoke test）；
+- 当前端到端唯一阻断为未配置 `OPENAI_API_KEY`（或可用兼容 provider 的 API key/base_url）。
+
+### 依赖补齐与 Smoke Test（2026-03-09）
+- 已创建项目虚拟环境：`./.venv`（Python 3.12.3）。
+- 已安装主项目依赖：
+  - `pip install -r requirements.txt`
+  - `pip install -e .`
+- 已拉取 NewtonBench 源码：`third_party/NewtonBench`。
+- 已安装 NewtonBench 依赖：`pip install -r third_party/NewtonBench/requirements.txt`。
+- NewtonBench skill 脚本 smoke test 通过：
+  - `generate_task_prompt.py --module m0_gravity ...` 成功返回 `function_signature/param_description/task_prompt`
+  - `run_experiment.py --module m0_gravity --inputs-json '[{"mass1":...}]'` 成功返回数值结果
+  - `evaluate_submission.py --module m0_gravity --law-text '<final_law>...</final_law>'` 成功返回评测 JSON（在无 judge API key 时 `symbolic_equivalent=false`，并打印重试告警）
+- Hamilton profile 单任务 smoke test（`configs/hamilton/newtonbench.yaml`）验证结果：
+  - 成功完成：playground 自动导入、run_dir/workspace 初始化、local session 启动、`newtonbench/evo-protocol` skills 加载、symlink 建立
+  - 失败点：Agent 初始化 LLM 阶段抛错 `ValueError: OpenAI API key must be provided in config`
+  - 结论：框架接线已通，当前只差可用 LLM 凭据即可进入真正对话轮次。
+
+### 接力验证更新（2026-03-09，用户提供 key + gpt-5-chat）
+- 已将 `configs/hamilton/newtonbench.yaml` 的模型从 `gpt-5` 切换为 `gpt-5-chat`。
+- 重新运行 Hamilton 单任务 smoke test：
+  - 在默认沙箱下首先报 `httpcore.ConnectError: [Errno 1] Operation not permitted`（网络受限）；
+  - 提权后可连 OpenAI API，但返回 `401 invalid_api_key`，错误为 `Incorrect API key provided`。
+- 当前真实阻断从“缺失 key”收敛为“当前 key 无效（或与目标服务不匹配）”。
+
+## NewtonBench 纠偏更新（2026-03-09，晚）
+
+### 已确认可用的运行方式
+- Hamilton 使用 `gpt-5-chat` 时可完成单任务端到端链路。
+- 最新成功运行记录：
+  - `runs/hamilton_20260309_143656/logs/task_0.log`
+  - `playground/hamilton/records/experiment_20260309_143703.json`
+
+### 已落地的关键修复（与链路成功直接相关）
+- Agent 增加“文本 JSON → tool_calls”回退恢复（兼容网关不返回原生 function-calling 的情况）。
+- `newtonbench` skill 脚本补了 repo-root fallback 路径解析（避免 run workspace 下找不到 `third_party/NewtonBench`）。
+- `run_experiment.py` 兼容 `--tag value` 形式，避免 agent 输出参数稍有偏差就失败。
+- Skill 脚本执行统一改为 `sys.executable`，避免 `.venv` 与系统 Python 混用导致依赖缺失。
+
+### 当前最关键缺口（决定下一阶段改造优先级）
+- 协议合规缺口：
+  - Agent 仍可能在证据不足时直接 `finish(task_completed="true")`。
+  - `finish.message` 中的实验结论可与真实 `<experiment_output>` 不一致（已有记录出现数值幻觉）。
+- 评测闭环缺口：
+  - 当前没有强制“提交前调用 `evaluate_submission.py`”。
+  - 没有统一保存每题 SA / RMSLE 到可聚合结果表。
+- 可规模化缺口：
+  - 缺少 Hamilton 侧任务生成与批量执行/断点续跑流水线。
+  - 324 tasks 的结果还无法一键汇总对比。
+- 记忆执行缺口：
+  - L2 post-check 持续告警（`findings.md` / `plan.md` 可能未更新），会影响多轮质量和可解释性。
+
+### 结论（用于驱动后续开发）
+- “能跑”问题已基本解决，当前核心从连通性转向“可靠性 + 可评测 + 可规模化”。
+- 下一步应该优先做协议护栏与评测流水线，再做 pilot benchmark，再扩展到全量 324 tasks。
+
+### 架构改进假设（待 pilot 验证）
+- H1：在 `task_completed="true"` 前增加协议护栏（至少一次有效实验 + 合法 `<final_law>`）可显著降低“伪完成”。
+- H2：在 round 结束自动执行一次 `evaluate_submission` 并回填指标，可降低高 RMSLE 但误判完成的比例。
+- H3：将实验输入/输出、最终方程、评测结果结构化落盘后，可显著提升失败模式定位效率，减少 prompt 盲改。
+
+## Phase 7 第一批实现（2026-03-09）
+
+### 新增能力
+- 已新增 `scripts/newtonbench/generate_hamilton_tasks.py`：
+  - 可按 module/system/difficulty/law_version/noise 生成 Hamilton `--task-file`。
+  - 已验证生成 easy-36 任务文件：`playground/hamilton/tasks/newtonbench_easy36.json`。
+- 已新增 `scripts/newtonbench/summarize_hamilton_run.py`：
+  - 可汇总每个 task 的状态、实验调用次数、`<final_law>` 是否存在、L2 告警、token 用量。
+  - 支持 `--auto-evaluate` 自动调用 `evaluate_submission.py`，回填 SA/RMSLE（受 judge 可用性影响）。
+
+### 验证结果
+- `generate_hamilton_tasks.py` 生成结果符合预期（12 modules × 3 systems × easy × v0 × noise0 = 36）。
+- `summarize_hamilton_run.py` 已对 `runs/hamilton_20260309_143656` 成功输出：
+  - `newtonbench_summary.json`
+  - `newtonbench_trials.csv`
+- 汇总脚本已支持从 task log 回填任务元数据（即便未提供 `--task-file`）。
+
+### 当前剩余差距
+- 批量入口目前依赖 `run.py --task-file` 现有能力，尚未补“失败重试 + 断点续跑”编排层。
+- round 级结构化工件（每轮实验输入输出、提交评测原始结果）尚未标准化落盘。
+
+## Phase 7 第二批实现（2026-03-09）
+
+### 协议护栏落地
+- `playground/hamilton/core/exp.py` 已新增 NewtonBench 完成护栏：
+  - 仅当 `finish(task_completed="true")` 且满足全部条件时才判定 `satisfied=true`：
+    - 至少一次成功的 `run_experiment.py`
+    - 至少一次 `evaluate_submission.py` 调用
+    - `finish.message` 含 `<final_law>def discovered_law(...)</final_law>`
+  - 若不满足，`signal` 会写入 `protocol.violations` 并设置 `protocol_guard_blocked=true`，防止伪完成被当作“已收敛”。
+
+### 评测汇总稳健性修复
+- `scripts/newtonbench/summarize_hamilton_run.py` 已修复 `invalid_evaluation_json`：
+  - 现在会从混合 stdout 中提取“最后一个 JSON 对象”，兼容 `evaluate_submission.py` 前置重试日志。
+- 汇总指标新增 `protocol_full_ok`（core 协议 + 至少一次 `evaluate_submission` 调用），用于区分“仅有 final_law”与“完成终态评测”的任务。
+
+### 实测回归（用户 run 目录）
+- 在 `runs/hamilton_20260309_154651` 上复跑 `--auto-evaluate` 后：
+  - `auto_evaluated_tasks`: `0 -> 1`
+  - `evaluation_error`: `invalid_evaluation_json -> null`
+  - 新增 `protocol_full_ok: 0`，准确暴露该次运行“未调用 evaluate_submission”的协议缺口。
+- 通过离线构造 trajectory 验证 `RoundExp` 新护栏逻辑：
+  - 缺少 `evaluate_submission.py` 时：`satisfied=False` 且 `protocol_guard_blocked=true`
+  - 具备 `run_experiment.py + evaluate_submission.py + final_law` 时：`satisfied=True`
+
+## Phase 8 Pilot Findings（2026-03-09）
+
+### 稳定性修复结论
+- `evaluate_submission.py` 增加超时（`--eval-timeout-sec`）后，easy36 再未出现“评测子进程长时间无返回”的硬卡死。
+- `call_llm_api.py` 支持 `OPENAI_BASE_URL`/`GPT_BASE_URL` 后，judge 请求可走与主 Agent 一致的 provider，避免了此前的模型/网关漂移。
+- 模型别名归一化后，`gpt-5-mini` / `gpt-5-chat` / `gpt5mini` 混用不会直接触发 `api_source_mapping` 错误。
+
+### easy36 Pilot 总体结果（run: `runs/hamilton_20260309_180705`）
+- 汇总口径：`summarize_hamilton_run.py --auto-evaluate`（已改为从 trajectory 精确统计调用）。
+- 核心指标：
+  - `total_tasks=36`
+  - `completed_tasks=36`
+  - `protocol_core_ok=35`
+  - `protocol_full_ok=34`
+  - `with_run_experiment_success=35`
+  - `with_evaluate_success=35`
+  - `avg_exact_accuracy=0.0`
+  - `rmsle_tasks=26/36`
+  - `avg_rmsle=1.5485`（仅在有限值 RMSLE 样本上计算）
+  - `avg_total_tokens≈31595.7`
+
+### 失败模式（从 `newtonbench_trials.csv`）
+- 协议失败样本：
+  - `nb_0001_m0_gravity_easy_vanilla_equation_v0_n0p0` 缺少成功 `evaluate_submission`（`evaluate_success_calls=0`）。
+- 指标覆盖缺口：
+  - 10 个任务 `rmsle` 非有限值，主要由提交函数签名不匹配导致：
+    - `Invalid function signature` / `Must be def discovered_law(...)`
+    - 典型集中在 `m0/m10/m1/m2/m3/m4` 的部分 system。
+  - 另有 1 个样本为 `math domain error`。
+- 质量表现：
+  - `symbolic_equivalent_true=0`，`exact_accuracy=0.0`（全部样本）；
+  - RMSLE 最差样本：`nb_0012_m1_coulomb_force_easy_complex_system_v0_n0p0`（`20.6496`）。
+- 行为层面：
+  - `l2_not_updated_warning=36/36`，说明 Agent 基本未在每题内落实 L2 更新。
+
+### 关键技术发现
+- 旧版汇总按日志文本计数会被“后续任务日志混入当前 task log”污染，导致调用次数虚高。
+- 改为 trajectory 口径后，协议计数可信度显著提升；此后 protocol 指标应以 trajectory 为准。
+- 自动评测原先会吞掉 `evaluation.error`，导致 `rmsle` 缺失却无错误信息；现已回填到 `evaluation_error`。
+
+### 对下一轮改造的直接启发
+- 优先解决“签名不一致”：
+  - 将 `generate_task_prompt.py` 返回的 `function_signature` 做强绑定校验（finish 前硬校验）。
+- 降低“完成但低质量”的概率：
+  - 在 `task_completed=true` 前加入可配置质量阈值（至少 `rmsle` 有限 + 非灾难性上界）。
+- 强化结果可诊断性：
+  - 每题落地最后一次 `evaluate_submission` 原始 JSON 到结构化文件，避免仅靠日志二次解析。
+
+## Phase 8.1 护栏验证与汇总纠偏（2026-03-09，夜）
+
+### 高风险任务验证结论
+- 验证 run：`runs/hamilton_20260309_220308`（`m1_coulomb_force + complex_system`）。
+- 日志与实验记录一致显示：
+  - 最后一次评测 `rmsle≈20.64`、`exact_accuracy=0.0`；
+  - Agent 执行了 `finish(task_completed="false")`，并明确“评测未达标，不能结束任务”；
+  - `playground/hamilton/records/experiment_20260309_220346.json` 中 `signal.protocol.violations` 为：
+    - `missing_final_law_block`
+    - `final_law_missing_discovered_law_signature`
+    - `rmsle_above_threshold`
+- 这证明 RoundExp 新增的 quality guard（`max_rmsle=2.0`）在高风险样本上可触发拦截。
+
+### 新发现的统计偏差与修复
+- 偏差现象：`summarize_hamilton_run.py` 曾错误给出 `with_final_law=1 / protocol_full_ok=1`。
+- 根因：脚本从整份 log 文本扫描 `<final_law>`，误命中 system prompt 示例块，而非真实 `finish.message`。
+- 修复后行为：
+  - `final_law` 仅从 `finish` 消息提取（trajectory 或 `📝 Finish Tool Arguments` 段）；
+  - 新增 `task_completed_true/task_completed_false` 统计；
+  - 新增“从日志回填最后一次 evaluation”能力（无需额外 auto-evaluate 也能拿到 `rmsle/exact_accuracy/symbolic`）。
+
+### 修复后回归结果
+- `runs/hamilton_20260309_220308`：
+  - `task_completed_false=1`
+  - `with_final_law=0`
+  - `protocol_core_ok=0`，`protocol_full_ok=0`
+  - `avg_rmsle=20.639647469042792`
+- `runs/hamilton_20260309_215738`（2-task guard smoke）：
+  - `task_completed_true=2`
+  - `protocol_full_ok=2`
+  - `avg_exact_accuracy=1.0`，`avg_rmsle=0.00020744057060517894`
+
+### 下一步优先级（已收敛）
+- 先做“失败模式驱动改造”第 2 轮：优先处理高 RMSLE 但能完成的问题（不是连通性问题）。
+- 最小改造目标：
+  - 在系统提示里强化“若评测不达标必须继续探索，不可输出最终完成答案”；
+  - 让 Agent 在提交前显式引用最后一次 `evaluate_submission` 指标（减少自说自话）。

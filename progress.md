@@ -31,18 +31,207 @@
 ## Test Results
 | Test | Input | Expected | Actual | Status |
 |------|-------|----------|--------|--------|
-|      |       |          |        |        |
+| NewtonBench task prompt 生成 | `generate_task_prompt.py --module m0_gravity ...` | 输出 task package JSON | 成功输出 `function_signature/param_description/task_prompt` | ✅ |
+| NewtonBench 单次实验调用 | `run_experiment.py --module m0_gravity --inputs-json ...` | 返回 experiment output | 返回数值（`3.8859756999373156e+30`） | ✅ |
+| NewtonBench 提交评测 | `evaluate_submission.py --module m0_gravity --law-text ...` | 返回 evaluation JSON | 返回 RMSLE/SA 结构化结果 | ✅ |
+| Hamilton NewtonBench 单任务（无提权） | `run.py --agent hamilton --config ...` | 至少进入对话轮次 | 到 LLM 请求后报 `Operation not permitted`（沙箱网络限制） | ⚠️ |
+| Hamilton NewtonBench 单任务（提权后） | 同上（带网络提权） | 至少进入对话轮次 | 可连 OpenAI 但返回 `401 invalid_api_key` | ⚠️ |
+| Hamilton NewtonBench 单任务（`gpt-5-chat` + `https://llm.dp.tech`） | `run.py --agent hamilton --config configs/hamilton/newtonbench.yaml --task "...m0_gravity..."` | 端到端完成一轮并调用 finish | 成功完成，状态 `completed`，记录见 `runs/hamilton_20260309_143656/` | ✅ |
+| 批量任务文件生成（easy36） | `generate_hamilton_tasks.py --modules all --systems ... --difficulties easy --law-versions v0` | 输出 36 个可运行任务 | 成功生成 `playground/hamilton/tasks/newtonbench_easy36.json` | ✅ |
+| run 目录汇总（含 auto-evaluate） | `summarize_hamilton_run.py --run-dir runs/hamilton_20260309_143656 --auto-evaluate` | 输出 summary JSON/CSV 与核心指标 | 成功输出 `newtonbench_summary.json/newtonbench_trials.csv` | ✅ |
+| run 目录汇总回归（修复 mixed stdout JSON 解析） | `summarize_hamilton_run.py --run-dir runs/hamilton_20260309_154651 --auto-evaluate` | `invalid_evaluation_json` 消失并写入评测指标 | 成功：`auto_evaluated_tasks=1`，`evaluation_error=null`，新增 `protocol_full_ok` 字段 | ✅ |
+| RoundExp 协议护栏单元级验证（离线） | 构造 Trajectory 调用 `_parse_signal`（含/不含 `evaluate_submission.py`） | 无 evaluate 时拦截完成；有 evaluate 时放行 | 结果：`CASE_A satisfied=False`，`CASE_B satisfied=True` | ✅ |
 
 ## Error Log
 | Timestamp | Error | Attempt | Resolution |
 |-----------|-------|---------|------------|
 | 2026-02-21 | N/A | 1 | N/A |
+| 2026-03-09 | OpenAI API key must be provided in config | 1 | 需在项目根 `.env` 或环境变量中配置 `OPENAI_API_KEY`（可选 `OPENAI_BASE_URL`） |
+| 2026-03-09 | `httpcore.ConnectError: [Errno 1] Operation not permitted` | 1 | 以提权方式重跑，验证非代码问题而是沙箱网络限制 |
+| 2026-03-09 | `401 invalid_api_key` | 1 | 需替换为有效 OpenAI key（或匹配 base_url 的有效 key） |
+| 2026-03-09 | 文本 JSON 未进入 `tool_calls` 导致 max_turns | 1 | 在 `agent.py` 增加 tool-call recovery fallback，恢复 `use_skill/finish` |
+| 2026-03-09 | `run_experiment.py --tag round1_test` 参数解析失败 | 1 | `--tag` 改为可选值参数（`nargs='?'`） |
 
 ## 5-Question Reboot Check
 | Question | Answer |
 |----------|--------|
-| Where am I? | Phase 1 |
-| Where am I going? | Phase 2–5 |
-| What's the goal? | 审查 EvoMaster + Hamilton agent 并输出改进建议 |
+| Where am I? | Phase 7（NewtonBench 协议对齐与评测流水线） |
+| Where am I going? | Phase 8–10（pilot → full benchmark → 架构改进方案） |
+| What's the goal? | 用 NewtonBench 验证 Hamilton 架构并给出数据驱动的改进方案 |
 | What have I learned? | See findings.md |
 | What have I done? | See above |
+
+## Session: 2026-03-09
+
+### Phase 6: NewtonBench 接入方案调研
+- **Status:** in_progress
+- **Started:** 2026-03-09
+- Actions taken:
+  - 读取 `paper/NewtonBench Benchmarking Generalizable Scientific Law Discovery in LLM Agents.pdf`
+  - 解析并提取 Appendix C prompt 模板、交互协议（run_experiment/python/final_law）、回合预算
+  - 提取评测关键口径（SA + RMSLE，RMSLE 使用 5000 点独立采样）
+  - 对照 `playground/hamilton` 当前架构，识别可复用模块与主要冲突点
+  - 根据用户最新要求，确认必须在 Hamilton playground 内扩展（不新建平行 playground）
+  - 广泛阅读 Hamilton 目录（README/TODO/core/prompts/workspace/records）及 Agent/Skill 执行链路
+  - 完成第一批代码改造（Hamilton workspace profile 化 + newtonbench skill 骨架 + newtonbench 配置/提示词）
+  - 完成静态校验：`compileall` 与 skill 脚本 `--help`
+  - 端到端校验受阻：本地缺失 `pydantic`（导入 Hamilton 失败）与 NewtonBench 依赖 `numpy`
+- Files created/modified:
+  - `task_plan.md` (updated)
+  - `findings.md` (updated)
+  - `progress.md` (updated)
+
+### Phase 6.1: 依赖补齐 + 单任务 Smoke Test
+- **Status:** in_progress
+- **Started:** 2026-03-09
+- Actions taken:
+  - 创建项目虚拟环境 `./.venv`
+  - 安装主项目依赖：`pip install -r requirements.txt` + `pip install -e .`
+  - 克隆 NewtonBench 到 `third_party/NewtonBench`
+  - 安装 NewtonBench 依赖：`pip install -r third_party/NewtonBench/requirements.txt`
+  - 运行 NewtonBench skill 脚本最小验证：
+    - `generate_task_prompt.py`（m0_gravity/easy/vanilla/v0）成功
+    - `run_experiment.py` 成功返回实验数值
+    - `evaluate_submission.py` 成功返回评测 JSON
+  - 运行 Hamilton 单任务命令：
+    - `python run.py --agent hamilton --config configs/hamilton/newtonbench.yaml --task "...m0_gravity..."`
+    - 初始化到 skills 加载均成功，默认沙箱下在 LLM 请求时报网络受限
+    - 提权后可达 OpenAI API，但返回 `401 invalid_api_key`
+  - 按用户要求将模型改为 `gpt-5-chat`（`configs/hamilton/newtonbench.yaml`）
+- Files created/modified:
+  - `.venv/` (created)
+  - `third_party/NewtonBench/` (created via git clone)
+  - `task_plan.md` (updated)
+  - `findings.md` (updated)
+  - `progress.md` (updated)
+
+### Phase 6.2: 接力验证成功 + 下一步路线收敛
+- **Status:** complete
+- **Started:** 2026-03-09
+- Actions taken:
+  - 根据同事代码确认 provider 兼容配置：`OPENAI_BASE_URL=https://llm.dp.tech`、`model=gpt-5-chat`
+  - 完成单任务端到端成功运行，验证 `use_skill -> run_experiment -> finish` 闭环
+  - 复盘 `playground/hamilton/records/experiment_*.json` 与 run log，识别当前主要缺口：
+    - 协议合规不足（可能“证据不足也完成”）
+    - 实验结果引用不严谨（可能出现输出值幻觉）
+    - 缺少批量任务与指标聚合流水线
+  - 阅读 `third_party/NewtonBench` 批量执行脚本（`run_master.py`/`run_all_evaluations.py`）用于对齐 324 tasks 组织方式
+  - 将下一阶段执行路线同步到 `task_plan.md`/`findings.md`/`progress.md`
+- Files created/modified:
+  - `task_plan.md` (updated)
+  - `findings.md` (updated)
+  - `progress.md` (updated)
+
+### Phase 7: 协议对齐与评测流水线（next）
+- **Status:** in_progress
+- **Planned actions:**
+  - 生成 NewtonBench 批量 task-file（先 easy 36 tasks pilot）
+  - 增加结果结构化落盘与聚合脚本（SA/RMSLE/完成率/轮次）
+  - 增加完成前协议护栏（有效实验 + `<final_law>` 格式校验）
+
+### Phase 7.1: 首批批量化工具落地
+- **Status:** complete
+- **Started:** 2026-03-09
+- Actions taken:
+  - 新增 `scripts/newtonbench/generate_hamilton_tasks.py`，支持按维度生成 Hamilton `--task-file`
+  - 新增 `scripts/newtonbench/summarize_hamilton_run.py`，支持 run 目录汇总与可选自动评测
+  - 产出 pilot 任务文件：`playground/hamilton/tasks/newtonbench_easy36.json`（36 tasks）
+  - 在历史 run 目录上验证汇总脚本：成功输出 JSON/CSV 及协议合规统计
+  - 更新 `playground/hamilton/README.md` 增加 batch pilot 使用说明
+- Files created/modified:
+  - `scripts/newtonbench/generate_hamilton_tasks.py` (created)
+  - `scripts/newtonbench/summarize_hamilton_run.py` (created)
+  - `playground/hamilton/README.md` (updated)
+  - `task_plan.md` (updated)
+  - `findings.md` (updated)
+  - `progress.md` (updated)
+
+### Phase 7.2: 协议护栏 + 汇总稳健性修复
+- **Status:** complete
+- **Started:** 2026-03-09
+- Actions taken:
+  - 在 `playground/hamilton/core/exp.py` 落地 NewtonBench 完成护栏：
+    - `task_completed="true"` 需满足成功实验、`evaluate_submission` 调用、`<final_law>`+`def discovered_law` 三项约束
+    - 不满足时写入 `signal.protocol.violations` 并阻断 `satisfied=true`
+  - 强化 `playground/hamilton/prompts/hamilton_newtonbench_system.txt`，显式要求“先评测后完成”
+  - 修复 `summarize_hamilton_run.py` 对 `evaluate_submission.py` 混合 stdout 的 JSON 解析
+  - 新增汇总指标 `protocol_full_ok`（核心协议 + evaluate 调用）
+  - 使用离线构造 trajectory 的方式验证 `RoundExp` 协议护栏放行/拦截行为
+  - 在用户 run 目录 `runs/hamilton_20260309_154651` 上回归验证脚本输出
+- Files created/modified:
+  - `playground/hamilton/core/exp.py` (updated)
+  - `playground/hamilton/prompts/hamilton_newtonbench_system.txt` (updated)
+  - `scripts/newtonbench/summarize_hamilton_run.py` (updated)
+  - `task_plan.md` (updated)
+  - `findings.md` (updated)
+  - `progress.md` (updated)
+
+### Phase 8.0: easy36 Pilot 首次完整运行 + 稳定性回归
+- **Status:** in_progress
+- **Started:** 2026-03-09
+- Actions taken:
+  - 停止卡住的旧 easy36 进程（卡在 `evaluate_submission.py` 子进程）。
+  - 修复 NewtonBench 评测链路稳定性：
+    - `evomaster/skills/newtonbench/scripts/evaluate_submission.py`
+      - 新增 `--eval-timeout-sec`（默认 90s）硬超时；
+      - 新增 judge 模型别名归一化（`gpt-5-mini`/`gpt-5-chat` 等）；
+      - 处理 `\\n` 形式的函数文本，避免 `discovered_law` 执行报错。
+    - `third_party/NewtonBench/utils/call_llm_api.py`
+      - OpenAI client 支持 `OPENAI_BASE_URL` / `GPT_BASE_URL`；
+      - 增加 HTTP timeout（`NEWTONBENCH_HTTP_TIMEOUT_SEC`）和 `max_retries=1`；
+      - `gpt5mini` 映射改为 `gpt-5-mini`，并补 `gpt5chat` 映射。
+    - NewtonBench prompts 更新评测示例，显式加入 `--eval-timeout-sec 90`。
+  - 重新跑单任务 smoke：
+    - run dir: `runs/hamilton_20260309_180345`
+    - 结果：`protocol_full_ok=1`，`run_experiment/evaluate_submission` 均成功执行，评测不再长时间阻塞。
+  - 跑完 easy36 pilot：
+    - run dir: `runs/hamilton_20260309_180705`
+    - 命令：`run.py --agent hamilton --config configs/hamilton/newtonbench.yaml --task-file playground/hamilton/tasks/newtonbench_easy36.json`
+  - 修复汇总脚本统计偏差：
+    - 原因：每个 task 日志会混入后续任务日志，导致按日志计数的脚本调用次数虚高。
+    - 方案：`summarize_hamilton_run.py` 改为优先从 `trajectory.json` 精确统计 `run_script` 调用与成功次数，并改为从最后一次 trajectory 统计 token。
+    - 增加汇总字段：`exact_accuracy_tasks`、`rmsle_tasks`。
+    - 自动评测时若 `evaluation.error` 非空或 `rmsle` 非有限值，会写入 `evaluation_error`。
+- Files created/modified:
+  - `evomaster/skills/newtonbench/scripts/evaluate_submission.py` (updated)
+  - `third_party/NewtonBench/utils/call_llm_api.py` (updated)
+  - `playground/hamilton/prompts/hamilton_newtonbench_system.txt` (updated)
+  - `playground/hamilton/prompts/hamilton_newtonbench_user.txt` (updated)
+  - `scripts/newtonbench/summarize_hamilton_run.py` (updated)
+  - `task_plan.md` (updated)
+  - `findings.md` (updated)
+  - `progress.md` (updated)
+
+## New Test Results
+| Test | Input | Expected | Actual | Status |
+|------|-------|----------|--------|--------|
+| 单任务稳定性回归（修复后） | `run.py --agent hamilton --config ...newtonbench.yaml --task "...m0_gravity..."` | 不再卡在 evaluate，并满足完整协议 | 完成：`protocol_full_ok=1`，`run_experiment/evaluate_submission` 成功 | ✅ |
+| easy36 pilot 全量运行 | `run.py --agent hamilton --config ...newtonbench.yaml --task-file ...newtonbench_easy36.json` | 36 题可跑完且不出现长阻塞 | 36/36 完成，运行结束于 `runs/hamilton_20260309_180705` | ✅ |
+| easy36 汇总（trajectory 口径） | `summarize_hamilton_run.py --run-dir ...180705 --auto-evaluate --judge-model gpt5mini` | 输出协议合规 + 指标 + 覆盖率 | 成功输出：`protocol_full_ok=34/36`、`avg_rmsle=1.5485`、`rmsle_tasks=26/36` | ✅ |
+
+### Phase 8.1: 高风险样本护栏验证 + 汇总脚本纠偏
+- **Status:** complete
+- **Started:** 2026-03-09
+- Actions taken:
+  - 对高风险样本执行与复盘：`runs/hamilton_20260309_220308`（`m1_coulomb_force/complex_system`）。
+  - 从 `task_0.log` 与 `experiment_20260309_220346.json` 双重确认：
+    - `evaluate_submission` 成功执行但 `rmsle≈20.64`；
+    - Agent 最终 `finish(task_completed="false")`；
+    - `signal.protocol.violations` 包含 `rmsle_above_threshold`。
+  - 修复 `scripts/newtonbench/summarize_hamilton_run.py`：
+    - `final_law` 改为只从真实 finish 消息提取，避免误命中 prompt 模板；
+    - 新增 `task_completed_true/task_completed_false` 汇总；
+    - 新增从日志提取最后一次 evaluation（`rmsle/exact_accuracy/symbolic`）能力。
+  - 对 `runs/hamilton_20260309_220308` 与 `runs/hamilton_20260309_215738` 做回归汇总，确认新口径正确。
+- Files created/modified:
+  - `scripts/newtonbench/summarize_hamilton_run.py` (updated)
+  - `findings.md` (updated)
+  - `progress.md` (updated)
+  - `task_plan.md` (updated)
+
+## Additional Test Results
+| Test | Input | Expected | Actual | Status |
+|------|-------|----------|--------|--------|
+| 高风险质量护栏验证（m1 complex） | `run.py --agent hamilton --config ...newtonbench.yaml --task "module: m1_coulomb_force ... system: complex_system ..."` | 低质量结果应被护栏阻断为完成态 | `finish(task_completed=false)`；记录中出现 `rmsle_above_threshold` 违规 | ✅ |
+| 汇总脚本纠偏回归（高风险 run） | `summarize_hamilton_run.py --run-dir runs/hamilton_20260309_220308` | 不应误报 `final_law/protocol_full_ok`，应回填评测指标 | `with_final_law=0`、`protocol_full_ok=0`、`avg_rmsle=20.6396` | ✅ |
+| 汇总脚本纠偏回归（guard smoke run） | `summarize_hamilton_run.py --run-dir runs/hamilton_20260309_215738` | 保持原先成功样本统计正确 | `task_completed_true=2`、`protocol_full_ok=2`、`avg_exact_accuracy=1.0` | ✅ |

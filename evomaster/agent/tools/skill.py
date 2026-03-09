@@ -6,6 +6,8 @@
 from __future__ import annotations
 
 import subprocess
+import shlex
+import sys
 from typing import TYPE_CHECKING, Any, ClassVar
 
 from pydantic import Field
@@ -190,11 +192,13 @@ class SkillTool(BaseTool):
         script_path = script_path.resolve()
         # 构建命令
         if script_path.suffix == '.py':
-            cmd = f"python {script_path}"
+            # 使用当前解释器，确保与主进程（如 .venv）依赖一致
+            python_exec = shlex.quote(sys.executable)
+            cmd = f"{python_exec} {shlex.quote(str(script_path))}"
         elif script_path.suffix == '.sh':
-            cmd = f"bash {script_path}"
+            cmd = f"bash {shlex.quote(str(script_path))}"
         elif script_path.suffix == '.js':
-            cmd = f"node {script_path}"
+            cmd = f"node {shlex.quote(str(script_path))}"
         else:
             return (
                 f"Error: Unsupported script type: {script_path.suffix}",

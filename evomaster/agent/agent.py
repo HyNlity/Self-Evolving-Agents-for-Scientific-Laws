@@ -19,9 +19,11 @@ from .context import ContextConfig, ContextManager
 from evomaster.utils.types import (
     AssistantMessage,
     Dialog,
+    FunctionCall,
     StepRecord,
     SystemMessage,
     TaskInstance,
+    ToolCall,
     ToolMessage,
     UserMessage,
 )
@@ -242,6 +244,10 @@ class BaseAgent(ABC):
             assistant_message=assistant_message,
         )
 
+        # 兼容某些网关/模型返回“文本 JSON”而非原生 tool_calls 的情况
+        if not assistant_message.tool_calls:
+            self._recover_tool_calls_from_text(assistant_message)
+
         # 如果没有工具调用
         if not assistant_message.tool_calls:
             # 检查Agent是否启用了工具调用
@@ -312,6 +318,190 @@ class BaseAgent(ABC):
         # 追加保存本次step到轨迹文件（包含tool_responses）
         self._append_trajectory_entry(dialog_for_query, step_record)
         return should_finish
+
+    def _recover_tool_calls_from_text(self, assistant_message: AssistantMessage) -> None:
+        """从 assistant 文本中恢复 tool calls（兼容非标准 function-calling 返回）。
+
+        一些兼容网关会把工具调用参数直接输出为 JSON 文本，而不是放在
+        `assistant_message.tool_calls` 字段里。这里尝试按启用工具名恢复。
+        """
+        if not self.enable_tools:
+            return
+
+        content = assistant_message.content
+        if not isinstance(content, str):
+            return
+
+        text = content.strip()
+        if not text:
+            return
+
+        allowed_tools = {
+            spec.function.name for spec in self._get_tool_specs()
+            if getattr(spec, "function", None) is not None
+        }
+        if not allowed_tools:
+            return
+
+        json_values = self._extract_json_values(text)
+        if not json_values:
+            return
+
+        payloads: list[Any] = []
+        for value in json_values:
+            if isinstance(value, list):
+                payloads.extend(value)
+            else:
+                payloads.append(value)
+
+        recovered_calls: list[ToolCall] = []
+        for payload in payloads:
+            if not isinstance(payload, dict):
+                continue
+
+            # 支持 { "tool_calls": [ ... ] } 包装格式
+            tool_calls_payload = payload.get("tool_calls")
+            if isinstance(tool_calls_payload, list):
+                for inner in tool_calls_payload:
+                    call = self._build_recovered_tool_call(inner, allowed_tools, len(recovered_calls) + 1)
+                    if call:
+                        recovered_calls.append(call)
+                continue
+
+            call = self._build_recovered_tool_call(payload, allowed_tools, len(recovered_calls) + 1)
+            if call:
+                recovered_calls.append(call)
+
+        if recovered_calls:
+            assistant_message.tool_calls = recovered_calls
+            self.logger.info(
+                "Recovered %d tool call(s) from assistant text JSON fallback: %s",
+                len(recovered_calls),
+                [c.function.name for c in recovered_calls],
+            )
+
+    @staticmethod
+    def _extract_json_values(text: str) -> list[Any]:
+        """从任意文本中提取所有可解析 JSON 值（对象/数组）。"""
+        values: list[Any] = []
+        decoder = json.JSONDecoder()
+        idx = 0
+        n = len(text)
+
+        while idx < n:
+            ch = text[idx]
+            if ch not in "{[":
+                idx += 1
+                continue
+
+            try:
+                value, end = decoder.raw_decode(text, idx)
+            except json.JSONDecodeError:
+                idx += 1
+                continue
+
+            values.append(value)
+            idx = end
+
+        return values
+
+    def _build_recovered_tool_call(
+        self,
+        payload: dict[str, Any],
+        allowed_tools: set[str],
+        call_index: int,
+    ) -> ToolCall | None:
+        """把一个 JSON 对象转换成 ToolCall（如果能识别）。"""
+        tool_name, args_obj = self._infer_tool_name_and_args(payload, allowed_tools)
+        if not tool_name:
+            return None
+
+        args_json = json.dumps(args_obj, ensure_ascii=False)
+        return ToolCall(
+            id=f"recovered_{self._step_count}_{call_index}",
+            function=FunctionCall(name=tool_name, arguments=args_json),
+        )
+
+    def _infer_tool_name_and_args(
+        self,
+        payload: dict[str, Any],
+        allowed_tools: set[str],
+    ) -> tuple[str | None, dict[str, Any]]:
+        """基于 payload 推断工具名和参数。"""
+        # 1) 显式格式：{"type":"function","function":{"name":"...","arguments":...}}
+        func = payload.get("function")
+        if payload.get("type") == "function" and isinstance(func, dict):
+            name = func.get("name")
+            if isinstance(name, str) and name in allowed_tools:
+                return name, self._normalize_recovered_args(name, func.get("arguments", {}))
+
+        # 2) 显式格式：{"name":"tool","arguments":...} / {"tool_name":"tool", ...}
+        name = payload.get("name")
+        if isinstance(name, str) and name in allowed_tools:
+            raw_args = payload.get("arguments", payload.get("args", {}))
+            return name, self._normalize_recovered_args(name, raw_args)
+
+        tool_name = payload.get("tool_name")
+        if isinstance(tool_name, str) and tool_name in allowed_tools:
+            raw_args = payload.get("arguments", payload.get("tool_args", payload.get("args", {})))
+            return tool_name, self._normalize_recovered_args(tool_name, raw_args)
+
+        # 3) 启发式推断：按参数键匹配最常见工具
+        keys = set(payload.keys())
+
+        if "finish" in allowed_tools and {"message", "task_completed"}.issubset(keys):
+            return "finish", {
+                "message": payload.get("message", ""),
+                "task_completed": payload.get("task_completed", "partial"),
+            }
+
+        if "use_skill" in allowed_tools and {"skill_name", "action"}.issubset(keys):
+            keep = {"skill_name", "action", "reference_name", "script_name", "script_args"}
+            return "use_skill", {k: payload[k] for k in keep if k in payload}
+
+        if (
+            "str_replace_editor" in allowed_tools
+            and {"command", "path"}.issubset(keys)
+            and str(payload.get("command")) in {"view", "create", "str_replace", "insert", "undo_edit"}
+        ):
+            keep = {"command", "path", "file_text", "old_str", "new_str", "insert_line", "view_range"}
+            return "str_replace_editor", {k: payload[k] for k in keep if k in payload}
+
+        if "execute_bash" in allowed_tools and "command" in keys:
+            keep = {"command", "is_input", "timeout"}
+            return "execute_bash", {k: payload[k] for k in keep if k in payload}
+
+        if "think" in allowed_tools and "thought" in keys:
+            return "think", {"thought": payload.get("thought", "")}
+
+        return None, {}
+
+    @staticmethod
+    def _normalize_recovered_args(tool_name: str, raw_args: Any) -> dict[str, Any]:
+        """把恢复出的 arguments 统一为 dict，便于后续校验。"""
+        if isinstance(raw_args, dict):
+            return raw_args
+
+        if raw_args is None:
+            return {}
+
+        if isinstance(raw_args, str):
+            text = raw_args.strip()
+            if not text:
+                return {}
+            try:
+                parsed = json.loads(text)
+                if isinstance(parsed, dict):
+                    return parsed
+                return {"input": parsed}
+            except json.JSONDecodeError:
+                if tool_name == "execute_bash":
+                    return {"command": raw_args}
+                if tool_name == "think":
+                    return {"thought": raw_args}
+                return {"input": raw_args}
+
+        return {"input": raw_args}
 
     def _execute_tool(self, tool_call) -> tuple[str, dict[str, Any]]:
         """执行工具调用

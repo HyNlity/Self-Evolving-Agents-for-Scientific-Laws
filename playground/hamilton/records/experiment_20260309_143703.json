@@ -1,0 +1,22 @@
+{
+  "task": "profile: newtonbench\nmodule: m0_gravity\nsystem: vanilla_equation\ndifficulty: easy\nlaw_version: v0\nnoise: 0.0\ncode_assisted: false\n\n这是 smoke test：请尽快完成，最多做 1~2 次实验后输出 <final_law>，并调用 finish(task_completed=\"true\")。",
+  "rounds": [
+    {
+      "round": 1,
+      "agent_result": "本轮实验完成，得到以下观测数据：m1=1.0, m2=2.0, r=3.0 时输出 F=0.2222；m1=2.0, m2=3.0, r=4.0 时输出 F=0.375。\n\n通过分析结果发现 F 与 m1*m2 成正比，与 r^2 成反比，系数约为 2/9 ≈ 0.2222。\n因此推测公式为 F = G * m1 * m2 / r**2，其中 G ≈ 2.0。\n\n<final_law>\n```python\ndef discovered_law(m1, m2, r):\n    G = 2.0\n    return G * m1 * m2 / (r**2)\n```\n</final_law>",
+      "findings": "# 研究发现\n\n## 关键洞察\n（经验证的数据观察和物理关系）\n\n## 实验结果\n| 轮次 | 方法 | 方程 | MSE (训练) | MSE (OOD) | 结论 |\n|------|------|------|-----------|-----------|------|\n\n## 最优方程演化\n（记录最优方程在各轮中的变化过程）\n",
+      "signal": {
+        "round": 1,
+        "satisfied": true,
+        "task_completed": "true",
+        "notes": "本轮实验完成，得到以下观测数据：m1=1.0, m2=2.0, r=3.0 时输出 F=0.2222；m1=2.0, m2=3.0, r=4.0 时输出 F=0.375。\n\n通过分析结果发现 F 与 m1*m2 成正比，与 r^2 成反比，系数约为 2/9 ≈ 0.2222。\n因此推测公式为 F = G * m1 * m2 / r**2，其中 G ≈ 2.0。\n\n<final_law>\n```python\ndef discovered_law(m1, m2, r):\n    G = 2.0\n    return G * m1 * m2 / (r**2)\n```\n</final_law>"
+      },
+      "trajectory": {
+        "status": "completed",
+        "steps": 1
+      }
+    }
+  ],
+  "start_time": "2026-03-09T14:36:56.144397",
+  "end_time": "2026-03-09T14:37:03.039829"
+}

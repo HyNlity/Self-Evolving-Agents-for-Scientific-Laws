@@ -14,6 +14,7 @@
 """
 # 添加项目根目录到 Python 路径，以便导入 evomaster 模块
 import sys
+import json
 from pathlib import Path
 project_root = Path(__file__).parent.parent.parent
 if str(project_root) not in sys.path:
@@ -26,6 +27,8 @@ from unittest.mock import Mock, MagicMock
 from evomaster.agent.agent import Agent, AgentConfig
 from evomaster.agent.context import ContextConfig, ContextManager, TruncationStrategy
 from evomaster.agent.session.base import BaseSession, SessionConfig
+from evomaster.agent.tools.builtin.bash import BashTool
+from evomaster.agent.tools.builtin.finish import FinishTool
 from evomaster.agent.tools.base import ToolRegistry
 from evomaster.utils.types import (
     AssistantMessage,
@@ -105,7 +108,7 @@ class TestAgentContextManagement(unittest.TestCase):
         if hasattr(self, 'tmpdir'):
             shutil.rmtree(self.tmpdir, ignore_errors=True)
     
-    def create_agent(self, context_config=None):
+    def create_agent(self, context_config=None, enable_tools=False):
         """创建 Agent 实例"""
         agent_config = AgentConfig(context_config=context_config or ContextConfig())
         
@@ -116,7 +119,7 @@ class TestAgentContextManagement(unittest.TestCase):
             system_prompt_file=str(self.system_prompt_file),
             user_prompt_file=str(self.user_prompt_file),
             config=agent_config,
-            enable_tools=False,  # 禁用工具调用以简化测试
+            enable_tools=enable_tools,
         )
     
     def test_initial_context(self):
@@ -666,7 +669,43 @@ class TestAgentContextManagement(unittest.TestCase):
         # 应该保留原始的 meta
         self.assertEqual(prepared.meta.get("custom_key"), "custom_value")
 
+    def test_recover_finish_tool_call_from_text_json(self):
+        """测试从文本 JSON 恢复 finish 工具调用。"""
+        self.tools.register(FinishTool())
+        agent = self.create_agent(enable_tools=True)
+
+        assistant_message = AssistantMessage(
+            content='{"message":"done","task_completed":"true"}',
+            tool_calls=None,
+        )
+        agent._recover_tool_calls_from_text(assistant_message)
+
+        self.assertIsNotNone(assistant_message.tool_calls)
+        assert assistant_message.tool_calls is not None
+        self.assertEqual(len(assistant_message.tool_calls), 1)
+        self.assertEqual(assistant_message.tool_calls[0].function.name, "finish")
+        args = json.loads(assistant_message.tool_calls[0].function.arguments)
+        self.assertEqual(args["message"], "done")
+        self.assertEqual(args["task_completed"], "true")
+
+    def test_recover_execute_bash_from_text_json(self):
+        """测试从文本 JSON 恢复 execute_bash 工具调用。"""
+        self.tools.register(BashTool())
+        agent = self.create_agent(enable_tools=True)
+
+        assistant_message = AssistantMessage(
+            content='{"command":"pwd"}',
+            tool_calls=None,
+        )
+        agent._recover_tool_calls_from_text(assistant_message)
+
+        self.assertIsNotNone(assistant_message.tool_calls)
+        assert assistant_message.tool_calls is not None
+        self.assertEqual(len(assistant_message.tool_calls), 1)
+        self.assertEqual(assistant_message.tool_calls[0].function.name, "execute_bash")
+        args = json.loads(assistant_message.tool_calls[0].function.arguments)
+        self.assertEqual(args["command"], "pwd")
+
 
 if __name__ == "__main__":
     unittest.main()
-

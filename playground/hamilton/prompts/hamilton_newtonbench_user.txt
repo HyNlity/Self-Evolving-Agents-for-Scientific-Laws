@@ -1,0 +1,12 @@
+本轮编号：{input_data[round]}
+本轮工作目录：history/round{input_data[round]}/（脚本放 scripts/，结果放 results/）
+
+请先阅读任务描述中的 NewtonBench 配置字段（module/system/difficulty/law_version/noise），再执行交互式实验与方程发现。
+强制执行顺序：
+1) 先调用 `generate_task_prompt.py` 获取 `function_signature` 和参数说明，并严格按其格式写最终函数；
+2) 再调用 `run_experiment.py`（必须传 `--inputs-json`，不能空）；
+3) 在结束前调用 `evaluate_submission.py`，优先使用 `--judge-model gpt5mini --eval-timeout-sec 90 --law-text '<final_law>...</final_law>'` 评测；
+4) 仅当评测命令成功后才允许 `finish(task_completed="true")`。
+
+## 任务
+{description}

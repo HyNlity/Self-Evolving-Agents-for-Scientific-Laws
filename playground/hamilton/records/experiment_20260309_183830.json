@@ -1,0 +1,31 @@
+{
+  "task": "profile: newtonbench\nmodule: m9_hooke_law\nsystem: vanilla_equation\ndifficulty: easy\nlaw_version: v0\nnoise: 0.0\ncode_assisted: false",
+  "rounds": [
+    {
+      "round": 1,
+      "agent_result": "本轮实验顺利完成，依据实验数据推导得到 E = 462.282 * x²，并已通过评测（RMSLE=0.0，符号等价）。\n\n<final_law>\ndef discovered_law(x):\n    c = 462.282\n    return max(c * x**2, 0)\n</final_law>",
+      "findings": "# 研究发现\n\n## 关键洞察\n（经验证的数据观察和物理关系）\n\n## 实验结果\n| 轮次 | 方法 | 方程 | MSE (训练) | MSE (OOD) | 结论 |\n|------|------|------|-----------|-----------|------|\n\n## 最优方程演化\n（记录最优方程在各轮中的变化过程）\n",
+      "signal": {
+        "round": 1,
+        "satisfied": true,
+        "task_completed": "true",
+        "notes": "本轮实验顺利完成，依据实验数据推导得到 E = 462.282 * x²，并已通过评测（RMSLE=0.0，符号等价）。\n\n<final_law>\ndef discovered_law(x):\n    c = 462.282\n    return max(c * x**2, 0)\n</final_law>",
+        "protocol": {
+          "run_experiment_calls": 2,
+          "run_experiment_success_calls": 2,
+          "evaluate_submission_calls": 1,
+          "evaluate_submission_success_calls": 1,
+          "has_final_law_block": true,
+          "has_discovered_law_signature": true,
+          "violations": []
+        }
+      },
+      "trajectory": {
+        "status": "completed",
+        "steps": 4
+      }
+    }
+  ],
+  "start_time": "2026-03-09T18:38:01.803155",
+  "end_time": "2026-03-09T18:38:30.400916"
+}
