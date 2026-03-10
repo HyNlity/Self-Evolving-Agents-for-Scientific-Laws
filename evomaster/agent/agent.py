@@ -355,6 +355,8 @@ class BaseAgent(ABC):
                 payloads.append(value)
 
         recovered_calls: list[ToolCall] = []
+        seen_call_keys: set[tuple[str, str]] = set()
+        deduped_count = 0
         for payload in payloads:
             if not isinstance(payload, dict):
                 continue
@@ -365,12 +367,26 @@ class BaseAgent(ABC):
                 for inner in tool_calls_payload:
                     call = self._build_recovered_tool_call(inner, allowed_tools, len(recovered_calls) + 1)
                     if call:
+                        call_key = self._tool_call_dedupe_key(call)
+                        if call_key in seen_call_keys:
+                            deduped_count += 1
+                            continue
+                        seen_call_keys.add(call_key)
                         recovered_calls.append(call)
                 continue
 
             call = self._build_recovered_tool_call(payload, allowed_tools, len(recovered_calls) + 1)
             if call:
+                call_key = self._tool_call_dedupe_key(call)
+                if call_key in seen_call_keys:
+                    deduped_count += 1
+                    continue
+                seen_call_keys.add(call_key)
                 recovered_calls.append(call)
+
+        pruned_count = 0
+        if recovered_calls:
+            recovered_calls, pruned_count = self._prune_redundant_recovered_calls(recovered_calls)
 
         if recovered_calls:
             assistant_message.tool_calls = recovered_calls
@@ -379,6 +395,79 @@ class BaseAgent(ABC):
                 len(recovered_calls),
                 [c.function.name for c in recovered_calls],
             )
+            if deduped_count > 0:
+                self.logger.info(
+                    "Deduplicated %d repeated recovered tool call(s) in this step.",
+                    deduped_count,
+                )
+            if pruned_count > 0:
+                self.logger.info(
+                    "Pruned %d redundant recovered tool call(s) in this step.",
+                    pruned_count,
+                )
+
+    @staticmethod
+    def _tool_call_dedupe_key(tool_call: ToolCall) -> tuple[str, str]:
+        """Build a canonical key for deduplicating recovered tool calls."""
+        fn = getattr(tool_call, "function", None)
+        name = getattr(fn, "name", "") if fn is not None else ""
+        args_raw = getattr(fn, "arguments", "") if fn is not None else ""
+        args_text = args_raw if isinstance(args_raw, str) else str(args_raw)
+        try:
+            parsed = json.loads(args_text)
+            canonical_args = json.dumps(parsed, ensure_ascii=False, sort_keys=True)
+        except Exception:
+            canonical_args = args_text.strip()
+        return str(name), canonical_args
+
+    @staticmethod
+    def _tool_call_arguments_dict(tool_call: ToolCall) -> dict[str, Any]:
+        fn = getattr(tool_call, "function", None)
+        args_raw = getattr(fn, "arguments", "") if fn is not None else ""
+        args_text = args_raw if isinstance(args_raw, str) else str(args_raw)
+        try:
+            parsed = json.loads(args_text) if args_text.strip() else {}
+        except Exception:
+            return {}
+        return parsed if isinstance(parsed, dict) else {}
+
+    def _prune_redundant_recovered_calls(self, calls: list[ToolCall]) -> tuple[list[ToolCall], int]:
+        """Drop clearly redundant execute_bash calls when use_skill(run_script) exists."""
+        has_use_skill_run_script = False
+        for call in calls:
+            fn = getattr(call, "function", None)
+            name = getattr(fn, "name", "") if fn is not None else ""
+            if name != "use_skill":
+                continue
+            args = self._tool_call_arguments_dict(call)
+            if str(args.get("action", "")).strip() == "run_script":
+                has_use_skill_run_script = True
+                break
+
+        if not has_use_skill_run_script:
+            return calls, 0
+
+        pruned_calls: list[ToolCall] = []
+        pruned_count = 0
+        for call in calls:
+            fn = getattr(call, "function", None)
+            name = getattr(fn, "name", "") if fn is not None else ""
+            if name != "execute_bash":
+                pruned_calls.append(call)
+                continue
+
+            args = self._tool_call_arguments_dict(call)
+            command = str(args.get("command", "") or "").strip()
+            lower = command.lower()
+            looks_like_python = lower.startswith(("python ", "python3 ", "./.venv/bin/python "))
+            looks_like_skill_script = "skills/" in command and ".py" in command
+            if looks_like_python and looks_like_skill_script:
+                pruned_count += 1
+                continue
+
+            pruned_calls.append(call)
+
+        return pruned_calls, pruned_count
 
     @staticmethod
     def _extract_json_values(text: str) -> list[Any]:
@@ -414,6 +503,13 @@ class BaseAgent(ABC):
         """把一个 JSON 对象转换成 ToolCall（如果能识别）。"""
         tool_name, args_obj = self._infer_tool_name_and_args(payload, allowed_tools)
         if not tool_name:
+            return None
+        if not self._is_valid_recovered_tool_call(tool_name, args_obj):
+            self.logger.info(
+                "Skipped recovered tool call with invalid args: tool=%s args=%s",
+                tool_name,
+                str(args_obj)[:200],
+            )
             return None
 
         args_json = json.dumps(args_obj, ensure_ascii=False)
@@ -502,6 +598,45 @@ class BaseAgent(ABC):
                 return {"input": raw_args}
 
         return {"input": raw_args}
+
+    @staticmethod
+    def _is_valid_recovered_tool_call(tool_name: str, args_obj: dict[str, Any]) -> bool:
+        """Lightweight guardrails to avoid obviously malformed recovered calls."""
+        if not isinstance(args_obj, dict):
+            return False
+
+        if tool_name == "execute_bash":
+            command = args_obj.get("command")
+            if not isinstance(command, str):
+                return False
+            cmd = command.strip()
+            if not cmd:
+                return False
+            # Common non-command narration accidentally parsed as execute_bash.
+            lowered = cmd.lower()
+            if cmd.endswith("..."):
+                return False
+            if lowered.startswith(("generating ", "running ", "executing ", "please ", "now ")):
+                return False
+            return True
+
+        if tool_name == "use_skill":
+            action = args_obj.get("action")
+            if not isinstance(action, str) or not action.strip():
+                return False
+            if action == "run_script":
+                script_name = args_obj.get("script_name")
+                if not isinstance(script_name, str) or not script_name.strip():
+                    return False
+            return True
+
+        if tool_name == "finish":
+            if "task_completed" not in args_obj:
+                return False
+            task_completed = args_obj.get("task_completed")
+            return isinstance(task_completed, (bool, str))
+
+        return True
 
     def _execute_tool(self, tool_call) -> tuple[str, dict[str, Any]]:
         """执行工具调用

@@ -201,6 +201,144 @@ def extract_finish_from_log(log_text: str) -> tuple[str, bool | None]:
     return last_message, last_task_completed
 
 
+def extract_experiment_record_path_from_log(log_text: str, repo_root: Path) -> Path | None:
+    """Extract experiment record path from task log."""
+    record_path_text: str | None = None
+    for line in log_text.splitlines():
+        stripped = strip_log_prefix(line)
+        marker = "Experiment record saved to "
+        if marker not in stripped:
+            continue
+        record_path_text = stripped.split(marker, 1)[1].strip()
+
+    if not record_path_text:
+        return None
+
+    candidate = Path(record_path_text)
+    if not candidate.is_absolute():
+        candidate = (repo_root / candidate).resolve()
+    if candidate.exists():
+        return candidate
+    return None
+
+
+def parse_optional_bool(value: Any) -> bool | None:
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        return parse_bool(value)
+    return None
+
+
+def safe_float(value: Any) -> float | None:
+    try:
+        parsed = float(value)
+        if math.isfinite(parsed):
+            return parsed
+    except Exception:
+        pass
+    return None
+
+
+def parse_round_rows_from_experiment_record(record_path: Path) -> list[dict[str, Any]]:
+    """Parse per-round protocol/evaluation rows from experiment record JSON."""
+    if not record_path.exists():
+        return []
+    try:
+        payload = json.loads(record_path.read_text(encoding="utf-8"))
+    except Exception:
+        return []
+    if not isinstance(payload, dict):
+        return []
+
+    rounds = payload.get("rounds", [])
+    if not isinstance(rounds, list):
+        return []
+
+    rows: list[dict[str, Any]] = []
+    for item in rounds:
+        if not isinstance(item, dict):
+            continue
+        signal = item.get("signal", {})
+        if not isinstance(signal, dict):
+            signal = {}
+        protocol = signal.get("protocol", {})
+        if not isinstance(protocol, dict):
+            protocol = {}
+        last_eval = protocol.get("last_evaluation", {})
+        if not isinstance(last_eval, dict):
+            last_eval = {}
+        violations = protocol.get("violations", [])
+        if not isinstance(violations, list):
+            violations = []
+
+        rows.append(
+            {
+                "round": item.get("round"),
+                "satisfied": bool(signal.get("satisfied", False)),
+                "task_completed": parse_optional_bool(signal.get("task_completed")),
+                "run_experiment_success_calls": int(protocol.get("run_experiment_success_calls", 0) or 0),
+                "evaluate_success_calls": int(protocol.get("evaluate_submission_success_calls", 0) or 0),
+                "has_final_law_block": bool(protocol.get("has_final_law_block", False)),
+                "signature_match": parse_optional_bool(protocol.get("signature_match")),
+                "rmsle": safe_float(last_eval.get("rmsle")),
+                "exact_accuracy": safe_float(last_eval.get("exact_accuracy")),
+                "symbolic_equivalent": parse_optional_bool(last_eval.get("symbolic_equivalent")),
+                "violations": [str(v) for v in violations],
+            }
+        )
+    return rows
+
+
+def summarize_round_rows(round_rows: list[dict[str, Any]]) -> dict[str, Any]:
+    """Summarize per-round rows for one task."""
+    rmsle_values = [
+        float(row["rmsle"])
+        for row in round_rows
+        if row.get("rmsle") is not None and math.isfinite(float(row.get("rmsle")))
+    ]
+    last_rmsle = safe_float(round_rows[-1].get("rmsle")) if round_rows else None
+
+    return {
+        "rounds_total": len(round_rows),
+        "rounds_satisfied_true": sum(1 for row in round_rows if row.get("satisfied") is True),
+        "rounds_task_completed_true": sum(1 for row in round_rows if row.get("task_completed") is True),
+        "rounds_task_completed_false": sum(1 for row in round_rows if row.get("task_completed") is False),
+        "rounds_with_eval_success": sum(1 for row in round_rows if int(row.get("evaluate_success_calls", 0) or 0) > 0),
+        "rounds_with_final_law_block": sum(1 for row in round_rows if row.get("has_final_law_block") is True),
+        "round_best_rmsle": min(rmsle_values) if rmsle_values else None,
+        "round_last_rmsle": last_rmsle,
+    }
+
+
+def build_rounds_summary(task_rounds_payload: list[dict[str, Any]]) -> dict[str, Any]:
+    """Build run-level summary over all round rows."""
+    all_rows: list[dict[str, Any]] = []
+    for task_payload in task_rounds_payload:
+        rows = task_payload.get("rounds", [])
+        if isinstance(rows, list):
+            all_rows.extend([r for r in rows if isinstance(r, dict)])
+
+    rmsle_values = [
+        float(row["rmsle"])
+        for row in all_rows
+        if row.get("rmsle") is not None and math.isfinite(float(row.get("rmsle")))
+    ]
+
+    return {
+        "tasks_with_round_data": len(task_rounds_payload),
+        "total_rounds": len(all_rows),
+        "satisfied_rounds": sum(1 for row in all_rows if row.get("satisfied") is True),
+        "task_completed_true_rounds": sum(1 for row in all_rows if row.get("task_completed") is True),
+        "task_completed_false_rounds": sum(1 for row in all_rows if row.get("task_completed") is False),
+        "rounds_with_eval_success": sum(
+            1 for row in all_rows if int(row.get("evaluate_success_calls", 0) or 0) > 0
+        ),
+        "avg_round_rmsle": mean(rmsle_values) if rmsle_values else None,
+        "best_round_rmsle": min(rmsle_values) if rmsle_values else None,
+    }
+
+
 def extract_last_json_object(text: str) -> dict[str, Any] | None:
     """Extract the last JSON object from mixed stdout text."""
     decoder = json.JSONDecoder()
@@ -237,26 +375,26 @@ def safe_json_loads_dict(text: str) -> dict[str, Any] | None:
 
 def collect_script_stats_from_trajectory(
     trajectory_path: Path,
-) -> tuple[dict[str, dict[str, int]], str, bool | None]:
+) -> tuple[dict[str, dict[str, int]], str, bool | None, list[dict[str, Any]]]:
     """Extract per-script call/success stats from assistant tool_calls in trajectory."""
     if not trajectory_path.exists():
-        return {}, "", None
+        return {}, "", None, []
     try:
         data = json.loads(trajectory_path.read_text(encoding="utf-8"))
     except Exception:
-        return {}, "", None
+        return {}, "", None, []
 
     if not isinstance(data, list) or not data:
-        return {}, "", None
+        return {}, "", None, []
     last = data[-1]
     if not isinstance(last, dict):
-        return {}, "", None
+        return {}, "", None, []
     trajectory = last.get("trajectory", {})
     if not isinstance(trajectory, dict):
-        return {}, "", None
+        return {}, "", None, []
     dialogs = trajectory.get("dialogs", [])
     if not isinstance(dialogs, list):
-        return {}, "", None
+        return {}, "", None, []
 
     messages: list[dict[str, Any]] = []
     for dialog in dialogs:
@@ -268,20 +406,25 @@ def collect_script_stats_from_trajectory(
                 if isinstance(msg, dict):
                     messages.append(msg)
 
-    tool_meta_by_id: dict[str, dict[str, Any]] = {}
+    tool_payload_by_id: dict[str, dict[str, Any]] = {}
     for msg in messages:
         if msg.get("role") != "tool":
             continue
         tcid = msg.get("tool_call_id")
         if not isinstance(tcid, str) or not tcid:
             continue
+        content = msg.get("content", "")
         meta = msg.get("meta", {})
         info = meta.get("info", {}) if isinstance(meta, dict) else {}
-        tool_meta_by_id[tcid] = info if isinstance(info, dict) else {}
+        tool_payload_by_id[tcid] = {
+            "info": info if isinstance(info, dict) else {},
+            "content": content if isinstance(content, str) else str(content),
+        }
 
     stats: dict[str, dict[str, int]] = {}
     finish_message = ""
     finish_task_completed: bool | None = None
+    script_records: list[dict[str, Any]] = []
 
     for msg in messages:
         if msg.get("role") != "assistant":
@@ -328,7 +471,9 @@ def collect_script_stats_from_trajectory(
             rec["calls"] += 1
 
             tcid = tc.get("id")
-            info = tool_meta_by_id.get(tcid, {}) if isinstance(tcid, str) else {}
+            payload = tool_payload_by_id.get(tcid, {}) if isinstance(tcid, str) else {}
+            info = payload.get("info", {}) if isinstance(payload, dict) else {}
+            output = payload.get("content", "") if isinstance(payload, dict) else ""
             exit_code = info.get("exit_code") if isinstance(info, dict) else None
             try:
                 ok = exit_code is None or int(exit_code) == 0
@@ -336,8 +481,15 @@ def collect_script_stats_from_trajectory(
                 ok = str(exit_code).strip() == "0"
             if ok:
                 rec["success_calls"] += 1
+            script_records.append(
+                {
+                    "script_name": script_name,
+                    "success": ok,
+                    "output": output if isinstance(output, str) else str(output),
+                }
+            )
 
-    return stats, finish_message, finish_task_completed
+    return stats, finish_message, finish_task_completed, script_records
 
 
 def parse_total_tokens(trajectory_path: Path) -> int:
@@ -392,6 +544,22 @@ def extract_last_logged_evaluation(log_text: str) -> dict[str, Any] | None:
                 last_eval = evaluation
         idx = end
 
+    return last_eval
+
+
+def extract_last_trajectory_evaluation(script_records: list[dict[str, Any]]) -> dict[str, Any] | None:
+    last_eval: dict[str, Any] | None = None
+    for rec in script_records:
+        if rec.get("script_name") != "evaluate_submission.py":
+            continue
+        if not rec.get("success"):
+            continue
+        payload = extract_last_json_object(str(rec.get("output", "") or ""))
+        if not isinstance(payload, dict):
+            continue
+        evaluation = payload.get("evaluation")
+        if isinstance(evaluation, dict):
+            last_eval = evaluation
     return last_eval
 
 
@@ -525,9 +693,14 @@ def build_summary(records: list[TaskRecord]) -> dict[str, Any]:
     }
 
 
-def to_csv_rows(records: list[TaskRecord]) -> list[dict[str, Any]]:
+def to_csv_rows(
+    records: list[TaskRecord],
+    round_summary_by_task: dict[str, dict[str, Any]] | None = None,
+) -> list[dict[str, Any]]:
     rows: list[dict[str, Any]] = []
+    round_summary_by_task = round_summary_by_task or {}
     for r in records:
+        round_summary = round_summary_by_task.get(r.task_id, {})
         rows.append(
             {
                 "task_id": r.task_id,
@@ -552,6 +725,12 @@ def to_csv_rows(records: list[TaskRecord]) -> list[dict[str, Any]]:
                 "rmsle": r.rmsle,
                 "symbolic_equivalent": r.symbolic_equivalent,
                 "evaluation_error": r.evaluation_error,
+                "rounds_total": round_summary.get("rounds_total"),
+                "rounds_task_completed_true": round_summary.get("rounds_task_completed_true"),
+                "rounds_task_completed_false": round_summary.get("rounds_task_completed_false"),
+                "rounds_with_eval_success": round_summary.get("rounds_with_eval_success"),
+                "round_best_rmsle": round_summary.get("round_best_rmsle"),
+                "round_last_rmsle": round_summary.get("round_last_rmsle"),
             }
         )
     return rows
@@ -582,6 +761,12 @@ def write_csv(path: Path, rows: list[dict[str, Any]]) -> None:
         "rmsle",
         "symbolic_equivalent",
         "evaluation_error",
+        "rounds_total",
+        "rounds_task_completed_true",
+        "rounds_task_completed_false",
+        "rounds_with_eval_success",
+        "round_best_rmsle",
+        "round_last_rmsle",
     ]
     with path.open("w", encoding="utf-8", newline="") as f:
         writer = csv.DictWriter(f, fieldnames=fieldnames)
@@ -607,8 +792,11 @@ def main() -> int:
     tasks = parse_tasks(task_file, run_dir)
     if not tasks:
         raise ValueError("No tasks found. Provide --task-file or ensure run_dir/logs/*.log exists.")
+    single_task_mode = len(tasks) == 1
 
     records: list[TaskRecord] = []
+    round_summary_by_task: dict[str, dict[str, Any]] = {}
+    task_rounds_payload: list[dict[str, Any]] = []
     for task in tasks:
         task_id = str(task.get("id", ""))
         description = str(task.get("description", ""))
@@ -622,9 +810,12 @@ def main() -> int:
 
         status = parse_status(task_id, log_text)
         trajectory_path = run_dir / "trajectories" / task_id / "trajectory.json"
-        script_stats, finish_message, task_completed_from_traj = collect_script_stats_from_trajectory(
-            trajectory_path
-        )
+        (
+            script_stats,
+            finish_message,
+            task_completed_from_traj,
+            script_records,
+        ) = collect_script_stats_from_trajectory(trajectory_path)
         run_stats = script_stats.get("run_experiment.py", {"calls": 0, "success_calls": 0})
         eval_stats = script_stats.get("evaluate_submission.py", {"calls": 0, "success_calls": 0})
         run_calls = int(run_stats.get("calls", 0))
@@ -663,9 +854,13 @@ def main() -> int:
             total_tokens=tokens,
         )
 
-        logged_eval = extract_last_logged_evaluation(log_text)
-        if logged_eval is not None:
-            apply_evaluation_to_record(record, logged_eval)
+        trajectory_eval = extract_last_trajectory_evaluation(script_records)
+        if trajectory_eval is not None:
+            apply_evaluation_to_record(record, trajectory_eval)
+        elif single_task_mode:
+            logged_eval = extract_last_logged_evaluation(log_text)
+            if logged_eval is not None:
+                apply_evaluation_to_record(record, logged_eval)
 
         if args.auto_evaluate:
             run_auto_evaluation(
@@ -675,10 +870,27 @@ def main() -> int:
                 newtonbench_root=args.newtonbench_root,
             )
 
+        experiment_record_path = extract_experiment_record_path_from_log(log_text, repo_root)
+        if experiment_record_path is not None:
+            round_rows = parse_round_rows_from_experiment_record(experiment_record_path)
+            round_summary = summarize_round_rows(round_rows)
+            round_summary_by_task[task_id] = round_summary
+            task_rounds_payload.append(
+                {
+                    "task_id": task_id,
+                    "experiment_record_path": str(experiment_record_path),
+                    "rounds_summary": round_summary,
+                    "rounds": round_rows,
+                }
+            )
+        else:
+            round_summary_by_task[task_id] = summarize_round_rows([])
+
         records.append(record)
 
     summary = build_summary(records)
-    rows = to_csv_rows(records)
+    rounds_summary = build_rounds_summary(task_rounds_payload)
+    rows = to_csv_rows(records, round_summary_by_task=round_summary_by_task)
 
     output_json = Path(args.output_json) if args.output_json else run_dir / "newtonbench_summary.json"
     output_csv = Path(args.output_csv) if args.output_csv else run_dir / "newtonbench_trials.csv"
@@ -688,7 +900,9 @@ def main() -> int:
             {
                 "run_dir": str(run_dir),
                 "summary": summary,
+                "rounds_summary": rounds_summary,
                 "tasks": rows,
+                "task_rounds": task_rounds_payload,
             },
             ensure_ascii=False,
             indent=2,

@@ -7,6 +7,10 @@
 2) 再调用 `run_experiment.py`（必须传 `--inputs-json`，不能空）；
 3) 在结束前调用 `evaluate_submission.py`，优先使用 `--judge-model gpt5mini --eval-timeout-sec 90 --law-text '<final_law>...</final_law>'` 评测；
 4) 仅当评测命令成功后才允许 `finish(task_completed="true")`。
+5) 如果本轮评测未达标，必须 `finish(task_completed="false")`，并在结束前：
+- 将失败原因写入 `findings.md`；
+- 将下一轮实验参数草案写入 `plan.md`；
+- 在 `finish.message` 中明确“下一轮计划”和至少 1 组新的 `--inputs-json`。
 
 ## 任务
 {description}

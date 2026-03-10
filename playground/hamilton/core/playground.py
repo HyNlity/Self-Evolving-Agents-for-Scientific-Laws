@@ -18,6 +18,7 @@ import shutil
 import sys
 from pathlib import Path
 from datetime import datetime
+from typing import Any
 
 # 确保可以导入evomaster模块
 _module_root = Path(__file__).resolve().parent.parent.parent.parent
@@ -248,6 +249,16 @@ class HamiltonPlayground(BasePlayground):
                 self.logger.info(f"Round {round_num}/{max_rounds}")
                 self.logger.info("=" * 60)
 
+                round_task_description = self._build_round_task_description(
+                    base_task_description=task_description,
+                    round_num=round_num,
+                )
+                if round_task_description != task_description:
+                    self.logger.info(
+                        "[Round %s] Injected previous-round feedback into task description.",
+                        round_num,
+                    )
+
                 # 创建单轮exp
                 exp = RoundExp(
                     agent=self.agent,
@@ -258,7 +269,7 @@ class HamiltonPlayground(BasePlayground):
                     exp.set_run_dir(self.workspace_dir)
 
                 # 执行单轮
-                result = exp.run(task_description)
+                result = exp.run(round_task_description)
                 signal = result.get("signal") or {}
 
                 # 记录结果（确保可 JSON 序列化；完整轨迹已由 trajectories/trajectory.json 持久化）
@@ -294,6 +305,79 @@ class HamiltonPlayground(BasePlayground):
 
         finally:
             self.cleanup()
+
+    def _build_round_task_description(self, base_task_description: str, round_num: int) -> str:
+        """Build per-round task description with previous-round failure feedback."""
+        if round_num <= 1:
+            return base_task_description
+
+        rounds = self.experiment_record.get("rounds", [])
+        if not isinstance(rounds, list) or not rounds:
+            return base_task_description
+
+        previous_round = rounds[-1]
+        if not isinstance(previous_round, dict):
+            return base_task_description
+
+        feedback_block = self._build_previous_round_feedback_block(previous_round)
+        if not feedback_block:
+            return base_task_description
+
+        return f"{base_task_description.rstrip()}\n\n{feedback_block}\n"
+
+    def _build_previous_round_feedback_block(self, previous_round: dict[str, Any]) -> str:
+        """Create a compact, explicit failure-feedback block for the next round."""
+        signal = previous_round.get("signal", {})
+        if not isinstance(signal, dict):
+            return ""
+        protocol = signal.get("protocol", {})
+        if not isinstance(protocol, dict):
+            protocol = {}
+
+        prev_round_num = previous_round.get("round", "?")
+        satisfied = signal.get("satisfied")
+        task_completed = signal.get("task_completed")
+        violations = protocol.get("violations", [])
+        if not isinstance(violations, list):
+            violations = []
+        last_eval = protocol.get("last_evaluation", {})
+        if not isinstance(last_eval, dict):
+            last_eval = {}
+
+        eval_parts: list[str] = []
+        for key in ("rmsle", "exact_accuracy", "symbolic_equivalent", "error"):
+            if key in last_eval:
+                eval_parts.append(f"{key}={last_eval.get(key)}")
+        eval_text = ", ".join(eval_parts) if eval_parts else "无可用评测指标"
+
+        ground_truth_law = last_eval.get("ground_truth_law")
+        if isinstance(ground_truth_law, str) and ground_truth_law.strip():
+            eval_text += f", ground_truth_law={ground_truth_law.strip()}"
+
+        expected_signature = protocol.get("expected_function_signature")
+        final_signature = protocol.get("final_law_signature")
+
+        lines = [
+            "## 系统注入：上一轮失败反馈（必须处理）",
+            f"- 上一轮: round={prev_round_num}, satisfied={satisfied}, task_completed={task_completed}",
+            f"- 最近一次评测: {eval_text}",
+        ]
+        if violations:
+            lines.append(f"- 协议违规项: {', '.join(str(v) for v in violations)}")
+        if isinstance(expected_signature, str) and expected_signature.strip():
+            lines.append(f"- 目标函数签名: {expected_signature.strip()}")
+        if isinstance(final_signature, str) and final_signature.strip():
+            lines.append(f"- 上一轮 final_law 签名: {final_signature.strip()}")
+
+        lines.extend(
+            [
+                "- 本轮硬约束:",
+                "1) 必须针对上述失败点提出新假设并使用新的实验参数，不得原样重复上一轮策略。",
+                "2) 在提交 finish(task_completed=\"false\") 前，先更新 findings.md 和 plan.md，写明失败原因与下一轮参数。",
+                "3) 如果上一轮指标未达标，不能在没有新证据的情况下重复提交相同核心方程形式。",
+            ]
+        )
+        return "\n".join(lines)
 
     def _create_plan_file(self, plan_file: Path, task_description: str):
         """创建 plan.md 研究计划文件

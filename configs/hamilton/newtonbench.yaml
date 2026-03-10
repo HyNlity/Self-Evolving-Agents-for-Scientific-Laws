@@ -51,8 +51,8 @@ session:
 
 experiment:
   record_dir: "./playground/hamilton/records"
-  # NewtonBench 的“轮次”主要在单次对话内控制，这里先设为 1
-  max_rounds: 1
+  # 允许失败后继续下一轮（RoundExp 通过 task_completed/satisfied 决定是否提前停止）
+  max_rounds: 3
   # workspace profile（供 HamiltonPlayground._init_workspace 读取）
   workspace_template: "playground/hamilton/workspace_newtonbench"
   seed_input_csv: false

@@ -491,6 +491,9 @@ class RoundExp(BaseExp):
             symbolic_msg = evaluation.get("symbolic_msg")
             if isinstance(symbolic_msg, str):
                 parsed["symbolic_msg"] = symbolic_msg
+            ground_truth_law = evaluation.get("ground_truth_law")
+            if isinstance(ground_truth_law, str) and ground_truth_law.strip():
+                parsed["ground_truth_law"] = ground_truth_law.strip()
             eval_error = evaluation.get("error")
             if isinstance(eval_error, str) and eval_error.strip():
                 parsed["error"] = eval_error.strip()

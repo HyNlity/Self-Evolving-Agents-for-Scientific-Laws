@@ -20,6 +20,10 @@ def discovered_law(...):
 - 至少一次成功的 `evaluate_submission.py` 调用（`exit_code=0`）；
 - `finish.message` 内含 `<final_law>def discovered_law(...)</final_law>`。
 6. 在任何实验前，先调用 `generate_task_prompt.py`，并严格遵守返回的 `function_signature` 和参数名（不要自行猜签名）。
+7. 如果本轮未达标，必须 `finish(task_completed="false")` 并继续下一轮；不要把“流程完成”当作“任务完成”。
+8. 在 `task_completed="false"` 前，先把失败原因与下一轮计划写入 L2：
+- 在 `findings.md` 追加本轮失败点（例如评测指标、错误类型）；
+- 在 `plan.md` 追加下一轮可执行计划（至少 1 组 `run_experiment` 参数）。
 
 ## 推荐工具路径
 
@@ -65,3 +69,6 @@ use_skill(
 2. 将稳定结论沉淀到 `findings.md`，将策略更新到 `plan.md`。
 3. 如果已形成最终方程，先调用一次且返回成功（`exit_code=0`）的 `evaluate_submission.py` 再结束；在 `finish.message` 中包含 `<final_law>...</final_law>` 块，并把 `task_completed` 设为 `"true"`。
 4. 如果任一完成条件未满足（包括未评测），`task_completed` 必须设为 `"false"`，并给出下一轮计划。
+5. 若本轮为失败结束（`task_completed="false"`），`finish.message` 必须包含：
+- `失败原因`（含最近一次评测关键指标，如 `rmsle/exact_accuracy/symbolic_equivalent/error`）；
+- `下一轮计划`（至少 1 组新的实验参数，避免重复本轮同一组参数）。
