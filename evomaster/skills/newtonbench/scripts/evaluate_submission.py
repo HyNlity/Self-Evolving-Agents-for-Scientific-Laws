@@ -119,6 +119,16 @@ def build_evaluate_kwargs(module, law_code: str, difficulty: str, law_version: s
     return kwargs
 
 
+def sanitize_evaluation(metrics: Any, reveal_ground_truth: bool) -> dict[str, Any]:
+    """Normalize evaluation payload and optionally hide ground-truth law."""
+    if not isinstance(metrics, dict):
+        return {}
+    out = dict(metrics)
+    if not reveal_ground_truth:
+        out.pop("ground_truth_law", None)
+    return out
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Evaluate discovered law with NewtonBench module")
     parser.add_argument("--module", required=True, help="NewtonBench module, e.g. m0_gravity")
@@ -138,6 +148,11 @@ def main() -> int:
     parser.add_argument("--law-file", default=None, help="Path to file containing discovered law")
     parser.add_argument("--law-text", default=None, help="Raw discovered law text")
     parser.add_argument("--newtonbench-root", default=None, help="Path to NewtonBench repo root")
+    parser.add_argument(
+        "--reveal-ground-truth",
+        action="store_true",
+        help="Include ground_truth_law in output JSON (default: hidden to avoid leakage).",
+    )
     args = parser.parse_args()
 
     if not args.law_file and not args.law_text:
@@ -189,6 +204,11 @@ def main() -> int:
         print(f"Evaluation failed: {e}", file=sys.stderr)
         return 3
 
+    sanitized_metrics = sanitize_evaluation(
+        metrics=metrics,
+        reveal_ground_truth=bool(args.reveal_ground_truth),
+    )
+
     print(
         json.dumps(
             {
@@ -197,7 +217,7 @@ def main() -> int:
                 "law_version": law_version,
                 "judge_model": judge_model,
                 "submitted_law": law_code,
-                "evaluation": metrics,
+                "evaluation": sanitized_metrics,
             },
             ensure_ascii=False,
             indent=2,

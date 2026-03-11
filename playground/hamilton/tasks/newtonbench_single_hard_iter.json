@@ -1,0 +1,16 @@
+[
+  {
+    "id": "nb_hard_iter_m10_be_distribution_hard_complex_system_v2_n0p0",
+    "description": "profile: newtonbench\nmodule: m10_be_distribution\nsystem: complex_system\ndifficulty: hard\nlaw_version: v2\nnoise: 0.0\ncode_assisted: false",
+    "meta": {
+      "profile": "newtonbench",
+      "module": "m10_be_distribution",
+      "system": "complex_system",
+      "difficulty": "hard",
+      "law_version": "v2",
+      "noise": 0.0,
+      "code_assisted": false
+    }
+  }
+]
+

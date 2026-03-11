@@ -160,6 +160,23 @@ python scripts/newtonbench/summarize_hamilton_run.py \
   --auto-evaluate
 ```
 
+### 5.4 单个 Hard 任务（迭代展示）
+
+用于展示“通过多轮迭代不断优化”的效果（单题 + `max_rounds=10`）：
+
+```bash
+RUN_DIR="runs/hamilton_hard_iter_$(date +%Y%m%d_%H%M%S)"
+python run.py --agent hamilton \
+  --config configs/hamilton/newtonbench_single_hard_iter.yaml \
+  --task-file playground/hamilton/tasks/newtonbench_single_hard_iter.json \
+  --run-dir "$RUN_DIR"
+
+python scripts/newtonbench/summarize_hamilton_run.py \
+  --run-dir "$RUN_DIR" \
+  --task-file playground/hamilton/tasks/newtonbench_single_hard_iter.json \
+  --auto-evaluate
+```
+
 ## 6. 输出产物说明
 
 运行后会生成：

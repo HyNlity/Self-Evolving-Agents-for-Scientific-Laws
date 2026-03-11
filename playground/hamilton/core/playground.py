@@ -350,10 +350,6 @@ class HamiltonPlayground(BasePlayground):
                 eval_parts.append(f"{key}={last_eval.get(key)}")
         eval_text = ", ".join(eval_parts) if eval_parts else "无可用评测指标"
 
-        ground_truth_law = last_eval.get("ground_truth_law")
-        if isinstance(ground_truth_law, str) and ground_truth_law.strip():
-            eval_text += f", ground_truth_law={ground_truth_law.strip()}"
-
         expected_signature = protocol.get("expected_function_signature")
         final_signature = protocol.get("final_law_signature")
 

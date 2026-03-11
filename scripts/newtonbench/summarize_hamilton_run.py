@@ -277,7 +277,9 @@ def parse_round_rows_from_experiment_record(record_path: Path) -> list[dict[str,
                 "round": item.get("round"),
                 "satisfied": bool(signal.get("satisfied", False)),
                 "task_completed": parse_optional_bool(signal.get("task_completed")),
+                "run_experiment_calls": int(protocol.get("run_experiment_calls", 0) or 0),
                 "run_experiment_success_calls": int(protocol.get("run_experiment_success_calls", 0) or 0),
+                "evaluate_calls": int(protocol.get("evaluate_submission_calls", 0) or 0),
                 "evaluate_success_calls": int(protocol.get("evaluate_submission_success_calls", 0) or 0),
                 "has_final_law_block": bool(protocol.get("has_final_law_block", False)),
                 "signature_match": parse_optional_bool(protocol.get("signature_match")),
@@ -298,16 +300,35 @@ def summarize_round_rows(round_rows: list[dict[str, Any]]) -> dict[str, Any]:
         if row.get("rmsle") is not None and math.isfinite(float(row.get("rmsle")))
     ]
     last_rmsle = safe_float(round_rows[-1].get("rmsle")) if round_rows else None
+    rmsle_path_parts: list[str] = []
+    for row in round_rows:
+        round_id = row.get("round")
+        round_rmsle = safe_float(row.get("rmsle"))
+        label = "NA" if round_rmsle is None else f"{round_rmsle:.6g}"
+        rmsle_path_parts.append(f"R{round_id}:{label}")
 
     return {
         "rounds_total": len(round_rows),
         "rounds_satisfied_true": sum(1 for row in round_rows if row.get("satisfied") is True),
         "rounds_task_completed_true": sum(1 for row in round_rows if row.get("task_completed") is True),
         "rounds_task_completed_false": sum(1 for row in round_rows if row.get("task_completed") is False),
+        "round_run_experiment_calls_total": sum(
+            int(row.get("run_experiment_calls", 0) or 0) for row in round_rows
+        ),
+        "round_run_experiment_success_calls_total": sum(
+            int(row.get("run_experiment_success_calls", 0) or 0) for row in round_rows
+        ),
+        "round_evaluate_calls_total": sum(
+            int(row.get("evaluate_calls", 0) or 0) for row in round_rows
+        ),
+        "round_evaluate_success_calls_total": sum(
+            int(row.get("evaluate_success_calls", 0) or 0) for row in round_rows
+        ),
         "rounds_with_eval_success": sum(1 for row in round_rows if int(row.get("evaluate_success_calls", 0) or 0) > 0),
         "rounds_with_final_law_block": sum(1 for row in round_rows if row.get("has_final_law_block") is True),
         "round_best_rmsle": min(rmsle_values) if rmsle_values else None,
         "round_last_rmsle": last_rmsle,
+        "round_rmsle_path": " | ".join(rmsle_path_parts),
     }
 
 
@@ -331,6 +352,14 @@ def build_rounds_summary(task_rounds_payload: list[dict[str, Any]]) -> dict[str,
         "satisfied_rounds": sum(1 for row in all_rows if row.get("satisfied") is True),
         "task_completed_true_rounds": sum(1 for row in all_rows if row.get("task_completed") is True),
         "task_completed_false_rounds": sum(1 for row in all_rows if row.get("task_completed") is False),
+        "run_experiment_calls_total": sum(int(row.get("run_experiment_calls", 0) or 0) for row in all_rows),
+        "run_experiment_success_calls_total": sum(
+            int(row.get("run_experiment_success_calls", 0) or 0) for row in all_rows
+        ),
+        "evaluate_calls_total": sum(int(row.get("evaluate_calls", 0) or 0) for row in all_rows),
+        "evaluate_success_calls_total": sum(
+            int(row.get("evaluate_success_calls", 0) or 0) for row in all_rows
+        ),
         "rounds_with_eval_success": sum(
             1 for row in all_rows if int(row.get("evaluate_success_calls", 0) or 0) > 0
         ),
@@ -681,6 +710,12 @@ def build_summary(records: list[TaskRecord]) -> dict[str, Any]:
         "with_run_experiment_success": with_experiment_success,
         "with_evaluate_call": with_eval_call,
         "with_evaluate_success": with_eval_success,
+        "total_run_experiment_calls": sum(int(r.run_experiment_calls or 0) for r in records),
+        "total_run_experiment_success_calls": sum(
+            int(r.run_experiment_success_calls or 0) for r in records
+        ),
+        "total_evaluate_calls": sum(int(r.evaluate_calls or 0) for r in records),
+        "total_evaluate_success_calls": sum(int(r.evaluate_success_calls or 0) for r in records),
         "protocol_core_ok": protocol_ok,
         "protocol_full_ok": protocol_full_ok,
         "auto_evaluated_tasks": with_eval,
@@ -728,9 +763,18 @@ def to_csv_rows(
                 "rounds_total": round_summary.get("rounds_total"),
                 "rounds_task_completed_true": round_summary.get("rounds_task_completed_true"),
                 "rounds_task_completed_false": round_summary.get("rounds_task_completed_false"),
+                "round_run_experiment_calls_total": round_summary.get("round_run_experiment_calls_total"),
+                "round_run_experiment_success_calls_total": round_summary.get(
+                    "round_run_experiment_success_calls_total"
+                ),
+                "round_evaluate_calls_total": round_summary.get("round_evaluate_calls_total"),
+                "round_evaluate_success_calls_total": round_summary.get(
+                    "round_evaluate_success_calls_total"
+                ),
                 "rounds_with_eval_success": round_summary.get("rounds_with_eval_success"),
                 "round_best_rmsle": round_summary.get("round_best_rmsle"),
                 "round_last_rmsle": round_summary.get("round_last_rmsle"),
+                "round_rmsle_path": round_summary.get("round_rmsle_path"),
             }
         )
     return rows
@@ -764,9 +808,14 @@ def write_csv(path: Path, rows: list[dict[str, Any]]) -> None:
         "rounds_total",
         "rounds_task_completed_true",
         "rounds_task_completed_false",
+        "round_run_experiment_calls_total",
+        "round_run_experiment_success_calls_total",
+        "round_evaluate_calls_total",
+        "round_evaluate_success_calls_total",
         "rounds_with_eval_success",
         "round_best_rmsle",
         "round_last_rmsle",
+        "round_rmsle_path",
     ]
     with path.open("w", encoding="utf-8", newline="") as f:
         writer = csv.DictWriter(f, fieldnames=fieldnames)
@@ -875,6 +924,16 @@ def main() -> int:
             round_rows = parse_round_rows_from_experiment_record(experiment_record_path)
             round_summary = summarize_round_rows(round_rows)
             round_summary_by_task[task_id] = round_summary
+            # Prefer cumulative per-round protocol counts over trajectory-last-round counts.
+            if int(round_summary.get("rounds_total", 0) or 0) > 0:
+                record.run_experiment_calls = int(round_summary.get("round_run_experiment_calls_total", 0) or 0)
+                record.run_experiment_success_calls = int(
+                    round_summary.get("round_run_experiment_success_calls_total", 0) or 0
+                )
+                record.evaluate_calls = int(round_summary.get("round_evaluate_calls_total", 0) or 0)
+                record.evaluate_success_calls = int(
+                    round_summary.get("round_evaluate_success_calls_total", 0) or 0
+                )
             task_rounds_payload.append(
                 {
                     "task_id": task_id,
