@@ -235,3 +235,73 @@
 | 高风险质量护栏验证（m1 complex） | `run.py --agent hamilton --config ...newtonbench.yaml --task "module: m1_coulomb_force ... system: complex_system ..."` | 低质量结果应被护栏阻断为完成态 | `finish(task_completed=false)`；记录中出现 `rmsle_above_threshold` 违规 | ✅ |
 | 汇总脚本纠偏回归（高风险 run） | `summarize_hamilton_run.py --run-dir runs/hamilton_20260309_220308` | 不应误报 `final_law/protocol_full_ok`，应回填评测指标 | `with_final_law=0`、`protocol_full_ok=0`、`avg_rmsle=20.6396` | ✅ |
 | 汇总脚本纠偏回归（guard smoke run） | `summarize_hamilton_run.py --run-dir runs/hamilton_20260309_215738` | 保持原先成功样本统计正确 | `task_completed_true=2`、`protocol_full_ok=2`、`avg_exact_accuracy=1.0` | ✅ |
+
+## Session: 2026-03-11
+
+### Phase 11 预研：回归 Hamilton 原始 PySR 流程（分析）
+- **Status:** in_progress
+- **Started:** 2026-03-11
+- Actions taken:
+  - 对比阅读 Hamilton 基线配置与 NewtonBench 配置，确认 skill 组合差异（`pysr` 在 NewtonBench 主线缺席）。
+  - 复核 NewtonBench skill 三脚本职责，确认当前链路“run_experiment/evaluate_submission 不负责搜索，仅执行/评测”。
+  - 复核 `RoundExp` 的 `system_backfill` 与 findings 表格写入逻辑，确认其为 L2 回填兜底机制。
+  - 输出“回归 PySR 主搜索器”的改造工作包（WP1~WP7）并同步到 `task_plan.md`。
+- Files created/modified:
+  - `task_plan.md` (updated)
+  - `findings.md` (updated)
+  - `progress.md` (updated)
+
+### Phase 11.1: P0 第一批代码改造（PySR-assisted）
+- **Status:** in_progress
+- **Started:** 2026-03-11
+- Actions taken:
+  - 新增 `fit_pysr_candidates.py`（newtonbench skill）：
+    - 增量采样 + 缓存 + PySR 拟合 + top-k 候选输出。
+  - NewtonBench 三套配置接入 `pysr`：
+    - skills 增加 `pysr`；
+    - symlinks 增加 `evomaster/skills/pysr`；
+    - experiment 增加 `search_mode: pysr_assisted`。
+  - 更新 NewtonBench 提示词和任务模板，要求每轮至少一次 PySR 候选搜索。
+  - 按“轻量化，相信 LLM”原则重写 NewtonBench prompts，删除大量硬约束。
+  - 在 `HamiltonPlayground` 注入 `runtime.search_mode` 提示，支持 `pysr_assisted/llm_direct` 双模式。
+  - 放宽 NewtonBench 配置护栏：移除 symbolic/exact 强门槛，保留核心协议口径。
+  - `fit_pysr_candidates.py` 增加模块默认算子配置与 `--health-check`。
+  - 更新 `newtonbench/SKILL.md` 与 Hamilton README 的流程文档。
+  - 验证结果：
+    - `fit_pysr_candidates.py --help` 正常；
+    - 脚本通过 `compileall`；
+    - 端到端最小样例在当前沙箱受 Julia registry 网络限制，未能完成最终拟合。
+- Files created/modified:
+  - `evomaster/skills/newtonbench/scripts/fit_pysr_candidates.py` (created)
+  - `evomaster/skills/newtonbench/SKILL.md` (updated)
+  - `configs/hamilton/newtonbench.yaml` (updated)
+  - `configs/hamilton/newtonbench_single_hard_iter.yaml` (updated)
+  - `configs/hamilton/newtonbench_single_hard_iter_2rounds.yaml` (updated)
+  - `playground/hamilton/prompts/hamilton_newtonbench_system.txt` (updated)
+  - `playground/hamilton/prompts/hamilton_newtonbench_user.txt` (updated)
+  - `playground/hamilton/workspace_newtonbench/task.md` (updated)
+  - `playground/hamilton/README.md` (updated)
+  - `task_plan.md` (updated)
+  - `findings.md` (updated)
+  - `progress.md` (updated)
+
+### Phase 11.2: P0 减法改造（轻量回归）
+- **Status:** complete
+- **Started:** 2026-03-11
+- Actions taken:
+  - 将 NewtonBench 三套配置切回轻量默认：`search_mode=llm_direct`，移除 `pysr` 默认 skill 依赖。
+  - 协议护栏收敛为核心闭环（实验/评测/final_law），关闭默认签名与质量硬门槛。
+  - 关闭 NewtonBench 默认 system backfill（`auto_backfill_l2: false`），避免系统重写 findings/plan 造成“框架过重”。
+  - 简化上一轮反馈注入文本，删除“硬约束”措辞，仅保留失败摘要与回滚建议。
+  - 重写 NewtonBench system/user prompt 与 workspace task 模板，保留 APPEND 标记写入约束与闭环必要项。
+- Files created/modified:
+  - `configs/hamilton/newtonbench.yaml` (updated)
+  - `configs/hamilton/newtonbench_single_hard_iter.yaml` (updated)
+  - `configs/hamilton/newtonbench_single_hard_iter_2rounds.yaml` (updated)
+  - `playground/hamilton/core/exp.py` (updated)
+  - `playground/hamilton/core/playground.py` (updated)
+  - `playground/hamilton/prompts/hamilton_newtonbench_system.txt` (updated)
+  - `playground/hamilton/prompts/hamilton_newtonbench_user.txt` (updated)
+  - `playground/hamilton/workspace_newtonbench/task.md` (updated)
+  - `evomaster/skills/evo-protocol/references/plan_template.md` (updated)
+  - `playground/hamilton/README.md` (updated)

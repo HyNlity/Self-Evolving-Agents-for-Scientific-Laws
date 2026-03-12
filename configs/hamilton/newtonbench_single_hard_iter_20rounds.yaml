@@ -1,5 +1,5 @@
-# Hamilton Playground 配置（NewtonBench profile）
-# 仍使用同一个 hamilton playground，仅切换 prompt/skill/workspace profile
+# Hamilton Playground 配置（NewtonBench 单题迭代展示）
+# 用于“1 个 hard 任务 + 高轮数”场景，突出迭代优化过程
 
 llm:
   openai:
@@ -7,7 +7,7 @@ llm:
     model: "gpt-5-chat"
     api_key: "${OPENAI_API_KEY}"
     base_url: "${OPENAI_BASE_URL}"
-    temperature: 0.4
+    temperature: 0.2
     max_tokens: 12000
     timeout: 120
     max_retries: 3
@@ -30,7 +30,6 @@ agents:
     system_prompt_file: "prompts/hamilton_newtonbench_system.txt"
     user_prompt_file: "prompts/hamilton_newtonbench_user.txt"
 
-    # 单 Agent + skill 驱动
     skills:
       - newtonbench
       - pysr
@@ -53,15 +52,13 @@ session:
 
 experiment:
   record_dir: "./playground/hamilton/records"
-  # 允许失败后继续下一轮（RoundExp 通过 task_completed/satisfied 决定是否提前停止）
-  max_rounds: 3
-  # workspace profile（供 HamiltonPlayground._init_workspace 读取）
+  # 单题 hard 任务的迭代展示：提高轮数上限
+  max_rounds: 20
   workspace_template: "playground/hamilton/workspace_newtonbench"
   seed_input_csv: false
   require_input_csv: false
   search_mode: "pysr_assisted"
   auto_backfill_l2: false
-  # NewtonBench 完成护栏（在 finish(task_completed="true") 前校验）
   newtonbench_protocol:
     require_signature_match: true
     require_finite_rmsle: true

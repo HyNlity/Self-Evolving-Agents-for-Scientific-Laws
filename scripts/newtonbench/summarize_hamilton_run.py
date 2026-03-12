@@ -38,6 +38,8 @@ class TaskRecord:
     run_experiment_success_calls: int
     evaluate_calls: int
     evaluate_success_calls: int
+    fit_pysr_calls: int
+    fit_pysr_success_calls: int
     has_final_law: bool
     final_law: str
     task_completed: bool | None
@@ -160,6 +162,18 @@ def extract_final_law(log_text: str) -> str:
     return ""
 
 
+def is_valid_final_law_code(code: str) -> bool:
+    if not isinstance(code, str) or not code.strip():
+        return False
+    if "def discovered_law" not in code:
+        return False
+    try:
+        compile(code, "<final_law>", "exec")
+        return True
+    except Exception:
+        return False
+
+
 def strip_log_prefix(line: str) -> str:
     return LOG_LINE_PREFIX.sub("", line)
 
@@ -272,6 +286,19 @@ def parse_round_rows_from_experiment_record(record_path: Path) -> list[dict[str,
         if not isinstance(violations, list):
             violations = []
 
+        eval_error = last_eval.get("error")
+        eval_error_text = eval_error.strip() if isinstance(eval_error, str) else ""
+        eval_success_calls = int(protocol.get("evaluate_submission_success_calls", 0) or 0)
+        has_effective_eval_success = (
+            eval_success_calls > 0
+            and not eval_error_text
+            and (
+                safe_float(last_eval.get("rmsle")) is not None
+                or safe_float(last_eval.get("exact_accuracy")) is not None
+                or parse_optional_bool(last_eval.get("symbolic_equivalent")) is not None
+            )
+        )
+
         rows.append(
             {
                 "round": item.get("round"),
@@ -280,7 +307,12 @@ def parse_round_rows_from_experiment_record(record_path: Path) -> list[dict[str,
                 "run_experiment_calls": int(protocol.get("run_experiment_calls", 0) or 0),
                 "run_experiment_success_calls": int(protocol.get("run_experiment_success_calls", 0) or 0),
                 "evaluate_calls": int(protocol.get("evaluate_submission_calls", 0) or 0),
-                "evaluate_success_calls": int(protocol.get("evaluate_submission_success_calls", 0) or 0),
+                "evaluate_success_calls": eval_success_calls,
+                "evaluate_success_calls_effective": 1 if has_effective_eval_success else 0,
+                "fit_pysr_calls": int(protocol.get("fit_pysr_candidates_calls", 0) or 0),
+                "fit_pysr_success_calls": int(
+                    protocol.get("fit_pysr_candidates_success_calls", 0) or 0
+                ),
                 "has_final_law_block": bool(protocol.get("has_final_law_block", False)),
                 "signature_match": parse_optional_bool(protocol.get("signature_match")),
                 "rmsle": safe_float(last_eval.get("rmsle")),
@@ -322,9 +354,33 @@ def summarize_round_rows(round_rows: list[dict[str, Any]]) -> dict[str, Any]:
             int(row.get("evaluate_calls", 0) or 0) for row in round_rows
         ),
         "round_evaluate_success_calls_total": sum(
-            int(row.get("evaluate_success_calls", 0) or 0) for row in round_rows
+            int(
+                row.get(
+                    "evaluate_success_calls_effective",
+                    row.get("evaluate_success_calls", 0),
+                )
+                or 0
+            )
+            for row in round_rows
         ),
-        "rounds_with_eval_success": sum(1 for row in round_rows if int(row.get("evaluate_success_calls", 0) or 0) > 0),
+        "round_fit_pysr_calls_total": sum(
+            int(row.get("fit_pysr_calls", 0) or 0) for row in round_rows
+        ),
+        "round_fit_pysr_success_calls_total": sum(
+            int(row.get("fit_pysr_success_calls", 0) or 0) for row in round_rows
+        ),
+        "rounds_with_eval_success": sum(
+            1
+            for row in round_rows
+            if int(
+                row.get(
+                    "evaluate_success_calls_effective",
+                    row.get("evaluate_success_calls", 0),
+                )
+                or 0
+            )
+            > 0
+        ),
         "rounds_with_final_law_block": sum(1 for row in round_rows if row.get("has_final_law_block") is True),
         "round_best_rmsle": min(rmsle_values) if rmsle_values else None,
         "round_last_rmsle": last_rmsle,
@@ -358,10 +414,30 @@ def build_rounds_summary(task_rounds_payload: list[dict[str, Any]]) -> dict[str,
         ),
         "evaluate_calls_total": sum(int(row.get("evaluate_calls", 0) or 0) for row in all_rows),
         "evaluate_success_calls_total": sum(
-            int(row.get("evaluate_success_calls", 0) or 0) for row in all_rows
+            int(
+                row.get(
+                    "evaluate_success_calls_effective",
+                    row.get("evaluate_success_calls", 0),
+                )
+                or 0
+            )
+            for row in all_rows
+        ),
+        "fit_pysr_calls_total": sum(int(row.get("fit_pysr_calls", 0) or 0) for row in all_rows),
+        "fit_pysr_success_calls_total": sum(
+            int(row.get("fit_pysr_success_calls", 0) or 0) for row in all_rows
         ),
         "rounds_with_eval_success": sum(
-            1 for row in all_rows if int(row.get("evaluate_success_calls", 0) or 0) > 0
+            1
+            for row in all_rows
+            if int(
+                row.get(
+                    "evaluate_success_calls_effective",
+                    row.get("evaluate_success_calls", 0),
+                )
+                or 0
+            )
+            > 0
         ),
         "avg_round_rmsle": mean(rmsle_values) if rmsle_values else None,
         "best_round_rmsle": min(rmsle_values) if rmsle_values else None,
@@ -508,6 +584,19 @@ def collect_script_stats_from_trajectory(
                 ok = exit_code is None or int(exit_code) == 0
             except Exception:
                 ok = str(exit_code).strip() == "0"
+
+            if ok and script_name == "evaluate_submission.py":
+                payload = extract_last_json_object(output if isinstance(output, str) else str(output))
+                if not isinstance(payload, dict):
+                    ok = False
+                else:
+                    evaluation = payload.get("evaluation")
+                    if not isinstance(evaluation, dict):
+                        ok = False
+                    else:
+                        eval_error = evaluation.get("error")
+                        if isinstance(eval_error, str) and eval_error.strip():
+                            ok = False
             if ok:
                 rec["success_calls"] += 1
             script_records.append(
@@ -590,6 +679,22 @@ def extract_last_trajectory_evaluation(script_records: list[dict[str, Any]]) -> 
         if isinstance(evaluation, dict):
             last_eval = evaluation
     return last_eval
+
+
+def extract_last_successful_submitted_law(script_records: list[dict[str, Any]]) -> str:
+    last_law = ""
+    for rec in script_records:
+        if rec.get("script_name") != "evaluate_submission.py":
+            continue
+        if not rec.get("success"):
+            continue
+        payload = extract_last_json_object(str(rec.get("output", "") or ""))
+        if not isinstance(payload, dict):
+            continue
+        submitted_law = payload.get("submitted_law")
+        if isinstance(submitted_law, str) and submitted_law.strip():
+            last_law = submitted_law.strip()
+    return last_law
 
 
 def apply_evaluation_to_record(record: TaskRecord, evaluation: dict[str, Any]) -> None:
@@ -683,6 +788,8 @@ def build_summary(records: list[TaskRecord]) -> dict[str, Any]:
     with_experiment_success = sum(1 for r in records if r.run_experiment_success_calls > 0)
     with_eval_call = sum(1 for r in records if r.evaluate_calls > 0)
     with_eval_success = sum(1 for r in records if r.evaluate_success_calls > 0)
+    with_fit_pysr = sum(1 for r in records if r.fit_pysr_calls > 0)
+    with_fit_pysr_success = sum(1 for r in records if r.fit_pysr_success_calls > 0)
     protocol_ok = sum(1 for r in records if r.protocol_core_ok)
     protocol_full_ok = sum(1 for r in records if r.protocol_full_ok)
     with_eval = sum(1 for r in records if r.exact_accuracy is not None or r.rmsle is not None)
@@ -710,12 +817,16 @@ def build_summary(records: list[TaskRecord]) -> dict[str, Any]:
         "with_run_experiment_success": with_experiment_success,
         "with_evaluate_call": with_eval_call,
         "with_evaluate_success": with_eval_success,
+        "with_fit_pysr": with_fit_pysr,
+        "with_fit_pysr_success": with_fit_pysr_success,
         "total_run_experiment_calls": sum(int(r.run_experiment_calls or 0) for r in records),
         "total_run_experiment_success_calls": sum(
             int(r.run_experiment_success_calls or 0) for r in records
         ),
         "total_evaluate_calls": sum(int(r.evaluate_calls or 0) for r in records),
         "total_evaluate_success_calls": sum(int(r.evaluate_success_calls or 0) for r in records),
+        "total_fit_pysr_calls": sum(int(r.fit_pysr_calls or 0) for r in records),
+        "total_fit_pysr_success_calls": sum(int(r.fit_pysr_success_calls or 0) for r in records),
         "protocol_core_ok": protocol_ok,
         "protocol_full_ok": protocol_full_ok,
         "auto_evaluated_tasks": with_eval,
@@ -751,6 +862,8 @@ def to_csv_rows(
                 "run_experiment_success_calls": r.run_experiment_success_calls,
                 "evaluate_calls": r.evaluate_calls,
                 "evaluate_success_calls": r.evaluate_success_calls,
+                "fit_pysr_calls": r.fit_pysr_calls,
+                "fit_pysr_success_calls": r.fit_pysr_success_calls,
                 "has_final_law": r.has_final_law,
                 "protocol_core_ok": r.protocol_core_ok,
                 "protocol_full_ok": r.protocol_full_ok,
@@ -770,6 +883,10 @@ def to_csv_rows(
                 "round_evaluate_calls_total": round_summary.get("round_evaluate_calls_total"),
                 "round_evaluate_success_calls_total": round_summary.get(
                     "round_evaluate_success_calls_total"
+                ),
+                "round_fit_pysr_calls_total": round_summary.get("round_fit_pysr_calls_total"),
+                "round_fit_pysr_success_calls_total": round_summary.get(
+                    "round_fit_pysr_success_calls_total"
                 ),
                 "rounds_with_eval_success": round_summary.get("rounds_with_eval_success"),
                 "round_best_rmsle": round_summary.get("round_best_rmsle"),
@@ -796,6 +913,8 @@ def write_csv(path: Path, rows: list[dict[str, Any]]) -> None:
         "run_experiment_success_calls",
         "evaluate_calls",
         "evaluate_success_calls",
+        "fit_pysr_calls",
+        "fit_pysr_success_calls",
         "has_final_law",
         "protocol_core_ok",
         "protocol_full_ok",
@@ -812,6 +931,8 @@ def write_csv(path: Path, rows: list[dict[str, Any]]) -> None:
         "round_run_experiment_success_calls_total",
         "round_evaluate_calls_total",
         "round_evaluate_success_calls_total",
+        "round_fit_pysr_calls_total",
+        "round_fit_pysr_success_calls_total",
         "rounds_with_eval_success",
         "round_best_rmsle",
         "round_last_rmsle",
@@ -867,12 +988,18 @@ def main() -> int:
         ) = collect_script_stats_from_trajectory(trajectory_path)
         run_stats = script_stats.get("run_experiment.py", {"calls": 0, "success_calls": 0})
         eval_stats = script_stats.get("evaluate_submission.py", {"calls": 0, "success_calls": 0})
+        fit_stats = script_stats.get("fit_pysr_candidates.py", {"calls": 0, "success_calls": 0})
         run_calls = int(run_stats.get("calls", 0))
         eval_calls = int(eval_stats.get("calls", 0))
         run_success_calls = int(run_stats.get("success_calls", 0))
         eval_success_calls = int(eval_stats.get("success_calls", 0))
+        fit_calls = int(fit_stats.get("calls", 0))
+        fit_success_calls = int(fit_stats.get("success_calls", 0))
         finish_message_from_log, task_completed_from_log = extract_finish_from_log(log_text)
         final_law = extract_final_law(finish_message) or extract_final_law(finish_message_from_log)
+        submitted_law_fallback = extract_last_successful_submitted_law(script_records)
+        if submitted_law_fallback and not is_valid_final_law_code(final_law):
+            final_law = submitted_law_fallback
         task_completed = (
             task_completed_from_traj
             if task_completed_from_traj is not None
@@ -897,6 +1024,8 @@ def main() -> int:
             run_experiment_success_calls=run_success_calls,
             evaluate_calls=eval_calls,
             evaluate_success_calls=eval_success_calls,
+            fit_pysr_calls=fit_calls,
+            fit_pysr_success_calls=fit_success_calls,
             has_final_law=bool(final_law.strip()),
             final_law=final_law,
             l2_not_updated_warning=("L2 files not updated" in log_text),
@@ -924,6 +1053,14 @@ def main() -> int:
             round_rows = parse_round_rows_from_experiment_record(experiment_record_path)
             round_summary = summarize_round_rows(round_rows)
             round_summary_by_task[task_id] = round_summary
+            # Prefer effective completion signal from experiment rounds.
+            # If a round had task_completed=true but satisfied=false, treat it as not completed.
+            if round_rows:
+                last_row = round_rows[-1]
+                row_task_completed = parse_optional_bool(last_row.get("task_completed"))
+                row_satisfied = bool(last_row.get("satisfied", False))
+                if row_task_completed is not None:
+                    record.task_completed = row_task_completed if row_satisfied else False
             # Prefer cumulative per-round protocol counts over trajectory-last-round counts.
             if int(round_summary.get("rounds_total", 0) or 0) > 0:
                 record.run_experiment_calls = int(round_summary.get("round_run_experiment_calls_total", 0) or 0)
@@ -931,8 +1068,13 @@ def main() -> int:
                     round_summary.get("round_run_experiment_success_calls_total", 0) or 0
                 )
                 record.evaluate_calls = int(round_summary.get("round_evaluate_calls_total", 0) or 0)
+                # Keep stricter success semantics (effective eval success without runtime error).
                 record.evaluate_success_calls = int(
                     round_summary.get("round_evaluate_success_calls_total", 0) or 0
+                )
+                record.fit_pysr_calls = int(round_summary.get("round_fit_pysr_calls_total", 0) or 0)
+                record.fit_pysr_success_calls = int(
+                    round_summary.get("round_fit_pysr_success_calls_total", 0) or 0
                 )
             task_rounds_payload.append(
                 {

@@ -1,51 +1,64 @@
-# NewtonBench 交互式方程发现任务（Hamilton 单 Agent）
+# NewtonBench 方程发现任务（Hamilton 单 Agent）
 
 ## 背景
 
-你正在 NewtonBench 的交互式科学定律发现环境中工作。  
-任务不是“写一个看起来合理的公式”，而是通过**实验-分析-评测-迭代**闭环，得到可验证、可解释、可复现的定律。
+NewtonBench 是交互式科学定律发现基准。你无法直接访问真实方程，只能通过实验接口采样，再用评测接口验证候选方程。
 
-请始终假设：你不知道真实方程，必须通过数据和评测反馈逐步逼近。
+每个任务由 `module/system/difficulty/law_version/noise` 定义，代表不同物理情境与观测接口。你的目标不是“写一个看起来像的公式”，而是完成可复查的闭环研究过程：
 
-## 任务输入（运行时由 `--task` 提供）
+实验 -> 候选 -> 评测 -> 迭代 -> 收敛。
 
-任务描述通常包含以下字段：
+## 任务目标
+
+1. 产出满足签名约束的 `discovered_law(...)`。
+2. 在可执行评测上尽量优化 `rmsle / exact_accuracy / symbolic_equivalent`。
+3. 给出清晰的物理解释与失败分析，让 `findings.md` 成为可复现研究记录。
+
+## 运行输入
+
+运行时任务通常包含：
 
 ```yaml
 profile: newtonbench
-module: m0_gravity
-system: vanilla_equation
-difficulty: easy
-law_version: v0
+module: m10_be_distribution
+system: complex_system
+difficulty: hard
+law_version: v2
 noise: 0.0
 code_assisted: false
 ```
 
-其中：
-- `module/system/difficulty/law_version/noise` 决定数据生成与评测条件；
-- 最终函数签名必须以 `generate_task_prompt.py` 返回的 `function_signature` 为准。
+最终函数签名以 `generate_task_prompt.py` 返回的 `function_signature` 为准。
 
-## 核心目标
+## 本轮最小流程（必须）
 
-1. 发现满足签名约束的 `discovered_law(...)`；
-2. 在评测中达到尽可能好的 `rmsle / exact_accuracy / symbolic_equivalent`；
-3. 形成有物理解释的结论，并把迭代过程沉淀到 `findings.md` 与 `plan.md`。
+1. 调用 `generate_task_prompt.py` 获取签名、参数说明、任务提示。
+2. 调用 `run_experiment.py` 采样（使用 `--inputs-json/--inputs-file`，不要用 `--num-samples`）。
+3. 在 `runtime.search_mode=pysr_assisted` 下，调用 `fit_pysr_candidates.py` 生成候选：
+   - 若此前没有成功 fit，本轮首次 fit 必须带 `--inputs-json` 且 >=8 组唯一输入。
+   - 若返回 `Not enough valid samples`，本轮继续补样并重试 fit，不要空参重复调用。
+4. 调用 `evaluate_submission.py` 评测候选（使用 `--law-text` / `--law-file`，不要传 `--candidate/--submission/--system/--noise`）。
+5. 更新 `findings.md` 与 `plan.md`（包含本轮决策、指标、下一步）。
+6. 调用 `finish(...)` 结束本轮。
 
-## 强制执行顺序（每一轮）
+## 工具调用约束（必须）
 
-1. 先调用 `generate_task_prompt.py`，拿到函数签名和参数说明；
-2. 调用 `run_experiment.py`（必须传 `--inputs-json`，且不能空）获取实验数据；
-3. 基于数据提出候选方程，并在结束前调用 `evaluate_submission.py`；
-4. 根据评测结果更新 `findings.md`（记录失败点/改进点）和 `plan.md`（下一轮新参数）；
-5. 最后调用 `finish(...)`。
+1. 运行 NewtonBench 脚本时，必须使用 `use_skill(action="run_script", skill_name="newtonbench", ...)`。
+2. 不要用 `execute_bash` 直接执行 `python3 scripts/*.py`，因为当前 workspace 下通常不存在该相对路径。
+3. `execute_bash` 只用于通用 shell 操作（查看文件、统计、排障），不用于调用 NewtonBench 脚本。
 
-## 完成标准
+## 环境约束（必须）
 
-只有同时满足以下条件，才允许 `finish(task_completed="true")`：
+1. 禁止执行系统级安装命令（`sudo`、`apt-get`、`yum`、`dnf`、`pacman`）。
+2. 禁止请求 root 权限或系统管理员密码。
+3. 依赖缺失时，只允许工作目录内用户态修复（`.julia-bin`、`.julia_depot`、`.venv`、环境变量）。
+4. 如果用户态修复失败，记录失败并继续可执行实验，不要发起系统级安装。
 
-1. 至少一次成功的 `run_experiment.py`（`exit_code=0`）；
-2. 至少一次成功的 `evaluate_submission.py`（`exit_code=0`）；
-3. `finish.message` 中包含：
+## 协议闭环要求（必须）
+
+1. 至少一次成功 `run_experiment.py`。
+2. 至少一次成功 `evaluate_submission.py`。
+3. `finish.message` 包含：
 
 ```text
 <final_law>
@@ -54,34 +67,37 @@ def discovered_law(...):
 </final_law>
 ```
 
-若未满足，则必须 `finish(task_completed="false")`，并明确：
-- 本轮失败原因（含最近评测指标与错误）；
-- 下一轮计划（至少 1 组新的 `--inputs-json`，不得原样重复）。
+4. `runtime.search_mode=pysr_assisted` 时，至少一次成功 `fit_pysr_candidates.py`。
+5. `<final_law>` 必须与“最后一次成功 `evaluate_submission.py` 的候选”一致；不要在评测后私自改式子再 finish。
 
-## 实验设计要求
+如果本轮没有明显改进，`task_completed="false"`，并在 `plan.md` 给出下一轮可执行动作。
 
-1. 每轮至少给出 1 组新实验参数，建议 3 组以上覆盖不同数量级；
-2. 参数采样要有“探索性”：避免总在同一局部范围取值；
-3. 若上一轮失败，本轮必须体现新假设（不是只改常数位数）；
-4. 所有结论必须能追溯到实验结果或评测输出。
+## 评估口径（NewtonBench 定制）
 
-## 评测指标解读（用于决策）
+1. **可执行性优先**：候选必须可通过 `evaluate_submission.py` 正常执行，无语法/数值崩溃。
+2. **泛化指标**：重点看 `rmsle`（越小越好）、`exact_accuracy`（越高越好）、`symbolic_equivalent`（尽量为 true）。
+3. **稳定性**：若出现 `math range error` / `overflow`，先修复数值稳定性（如指数输入截断）再继续。
+4. **迭代质量**：新候选退化时必须回滚到当前最优，不可盲目覆盖。
 
-- `rmsle`：数值误差（越小越好）；
-- `exact_accuracy`：精确匹配度（越高越好）；
-- `symbolic_equivalent`：是否符号等价（`true/false`）；
-- `error`：评测失败或执行异常信息（必须记录并处理）。
+## 迭代策略（轻量）
 
-## 发现记录要求（重点）
+1. 示例公式只用于格式演示，不是答案。
+2. 若同结构连续 2 轮无改进，切换结构族或变量组合。
+3. 先保证协议闭环，再追求指标上限。
+4. 每次评测后维护“当前最优候选”；若新候选退化，必须回滚，不得用退化候选作为最终输出。
+5. 在 `pysr_assisted` 模式下，优先以最近一次 PySR top 候选为主线；手写先验公式仅可作为对照，且必须成功评测并优于当前最优后才能替换。
 
-在 `findings.md` 中，对每个“候选/最终方程”，必须包含：
+## findings.md 记录规范（必须）
 
-1. **方程表达式**及各项的物理解释；
-2. **系数表**（跨实验条件），标注哪些系数基本不变（结构属性）、哪些随条件变化（情景属性）；
-3. **物理洞察**：该方程揭示了什么规律（例如尺度关系、主导项、极限行为）；
-4. **消融分析**：逐个去掉关键项或固定系数，说明该项是否必要。
+请保留并使用以下标记位，通过 `str_replace` 在标记前追加内容：
 
-为保证系统自动回填兼容，`findings.md` 必须保留以下表头（逐轮追加）：
+```markdown
+<!-- APPEND_FINDINGS -->
+<!-- APPEND_RESULTS -->
+<!-- APPEND_NEXT -->
+```
+
+基础表头必须存在：
 
 ```markdown
 ## 实验结果
@@ -89,51 +105,38 @@ def discovered_law(...):
 |------|------|------|-----------|-----------|------|
 ```
 
-建议按下列骨架组织 `findings.md`：
+注意：即使 NewtonBench 不直接给出 MSE，也要在该表中填写可比指标（如 `RMSLE=...`、`Exact=...`），保持表结构稳定。
+
+每轮至少追加 3 类信息：
+
+1. 一条关键洞察（实验观察或失败归因）。
+2. 一行实验结果（含 `rmsle/exact_accuracy/symbolic_equivalent/error`）。
+3. 一条下一轮动作（具体到参数或结构，不要写空泛描述）。
+
+## findings.md 深度分析规范（NewtonBench 定制）
+
+对每个重点候选（至少当前最优）必须包含：
+
+1. **方程表达式与物理解释**：逐项说明其可能物理意义。
+2. **参数/系数敏感性表**：标注哪些参数在不同输入尺度下稳定，哪些会导致明显退化。
+3. **物理洞察**：方程揭示了什么关系（尺度律、极限行为、主导项切换等）。
+4. **消融分析**：去掉关键项后，评测指标如何变化，验证每个项必要性。
+
+推荐使用如下段落标题（便于自动审阅）：
 
 ```markdown
-# 研究发现
-
-## 关键洞察
-- 本轮主要发现 ...
-
-## 实验结果
-| 轮次 | 方法 | 方程 | MSE (训练) | MSE (OOD) | 结论 |
-|------|------|------|-----------|-----------|------|
-| Round N | hypothesis_x | ... | - | - | rmsle=..., exact=..., symbolic=... |
-
 ## 候选方程解析（Round N）
 ### 1) 方程与物理解释
-- 方程：...
-- 项解释：...
-
-### 2) 系数表（跨实验条件）
-| 系数 | 数值/范围 | 稳定性标注 | 物理解释 |
-|------|-----------|------------|----------|
-| c1 | ... | 结构属性(基本不变) | ... |
-| c2 | ... | 情景属性(随条件变化) | ... |
-
+### 2) 参数/系数敏感性
 ### 3) 物理洞察
-- ...
-
 ### 4) 消融分析
-- 去掉项 A：...
-- 去掉项 B：...
-
-## 最优方程演化
-- Round 1: ...
-- Round 2: ...
 ```
 
-## Baseline 参照（NewtonBench 协议基线）
+## Baseline 与改进定义（NewtonBench 定制）
 
-最低合格基线是：
-1. 协议完整执行（prompt -> experiment -> evaluation -> finish）；
-2. 有可执行且签名正确的 `final_law`；
-3. 有可复查的 `findings.md` 记录（不是口头描述）。
+本任务中，“更好”至少满足以下之一：
 
-“比基线更好”通常意味着一项或多项提升：
-1. `rmsle` 更低，`exact_accuracy`/`symbolic_equivalent` 更高；
-2. 方程更简洁（更少冗余项）；
-3. 跨输入区间更稳健（不依赖局部参数凑巧）；
-4. 物理解释更清晰，消融证据更充分。
+1. `rmsle` 明显下降；
+2. `exact_accuracy` 或 `symbolic_equivalent` 提升；
+3. 在指标相近时，方程更简洁且更稳定（更少数值异常）；
+4. 同等指标下，物理解释更完整、消融证据更充分。

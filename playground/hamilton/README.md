@@ -36,12 +36,12 @@ run.py
   - 运行目录管理（`runs/<agent>_<timestamp>/...`）
 - `HamiltonPlayground`
   - workspace 初始化
-  - 多轮编排（NewtonBench profile 当前默认 `max_rounds: 1`）
+  - 多轮编排（NewtonBench profile 当前默认 `max_rounds: 3`，单 hard 配置可到 `10`）
   - 记录 `playground/hamilton/records/experiment_*.json`
 - `RoundExp`
   - 单轮执行
   - 从 `finish(task_completed=...)` 解析停止信号
-  - 执行 NewtonBench 协议与质量护栏（如签名校验、RMSLE 阈值）
+  - 执行 NewtonBench 核心协议护栏（实验/评测/final_law）
 - `newtonbench` skill
   - 对 NewtonBench 环境的统一桥接，不侵入 core
 
@@ -64,15 +64,20 @@ code_assisted: false
 推荐动作序列：
 1. `generate_task_prompt.py` 获取 `function_signature` 与任务提示。
 2. `run_experiment.py` 发起实验（每次最多 20 组输入）。
-3. 形成候选方程后调用 `evaluate_submission.py` 获取评测。
+3. 选择候选方程后调用 `evaluate_submission.py` 获取评测。
 4. 在 `finish.message` 中输出 `<final_law>...</final_law>` 并设置 `task_completed`。
+5. `runtime.search_mode=pysr_assisted` 时必须调用 `fit_pysr_candidates.py` 后再评测。
+
+可通过 `experiment.search_mode` 选择策略：
+- `pysr_assisted`（默认）：先跑 PySR 候选搜索再评测（原版 Hamilton 主路径）。
+- `llm_direct`（可选回退）：由 LLM 直接提出候选并评测。
 
 ### Step C: 系统护栏判定
 `RoundExp` 会在 `task_completed="true"` 前做协议检查，核心包含：
 1. 至少一次成功的 `run_experiment.py`。
 2. 至少一次成功的 `evaluate_submission.py`。
 3. `finish.message` 包含 `<final_law>def discovered_law(...)</final_law>`。
-4. 可选质量护栏：签名匹配、RMSLE 有限、RMSLE 不超过阈值。
+4. 质量护栏（推荐开启）：签名匹配、RMSLE 有限、PySR 调用约束。
 
 如果违规，系统会把 `satisfied` 改为 `false`，并在 `signal.protocol.violations` 记录原因。
 
@@ -112,6 +117,7 @@ scripts/newtonbench/
 ```bash
 export OPENAI_API_KEY="<your-key>"
 export OPENAI_BASE_URL="https://llm.dp.tech"   # 如使用兼容网关
+# export JULIA_DEPOT_PATH="$PWD/.julia_depot"  # 仅在使用 pysr_assisted 时需要
 ```
 
 ### 5.2 单任务运行

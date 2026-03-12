@@ -1,23 +1,45 @@
 本轮编号：{input_data[round]}
 本轮工作目录：history/round{input_data[round]}/（脚本放 scripts/，结果放 results/）
 
-请先阅读任务描述中的 NewtonBench 配置字段（module/system/difficulty/law_version/noise），再执行交互式实验与方程发现。
-强制执行顺序：
-1) 先调用 `generate_task_prompt.py` 获取 `function_signature` 和参数说明，并严格按其格式写最终函数；
-2) 再调用 `run_experiment.py`（必须传 `--inputs-json`，不能空）；
-3) 在结束前调用 `evaluate_submission.py`，优先使用 `--judge-model gpt5mini --eval-timeout-sec 90 --law-text '<final_law>...</final_law>'` 评测；
-4) 仅当评测命令成功后才允许 `finish(task_completed="true")`。
-5) 如果本轮评测未达标，必须 `finish(task_completed="false")`，并在结束前：
-- 将失败原因写入 `findings.md`；
-- 将下一轮实验参数草案写入 `plan.md`；
-- 在 `finish.message` 中明确“下一轮计划”和至少 1 组新的 `--inputs-json`。
-6) 在调用 `finish(...)` 前，检查 `findings.md` 已包含本轮结构化记录：
-- `## 候选方程解析（Round {input_data[round]}）`
-- `### 1) 方程与物理解释`
-- `### 2) 系数表（跨实验条件）`
-- `### 3) 物理洞察`
-- `### 4) 消融分析`
-若缺失，先补写再结束本轮。
+请执行一次轻量但完整的闭环迭代。
+
+建议最小流程：
+1. 读取 `plan.md` 与 `findings.md`，确认当前最优与本轮目标。
+2. 调用 `generate_task_prompt.py` 获取签名。
+3. 调用 `run_experiment.py` 获取新数据（使用 `--inputs-json`，不要用 `--num-samples`）。
+4. 调用 `fit_pysr_candidates.py` 生成 top-k 候选（必须包含 `--module/--system/--difficulty/--law-version/--noise`）。
+   - 若尚未出现成功 fit，本轮首次 fit 必须携带 `--inputs-json` 且 >=8 组唯一输入；
+   - 若报 `Not enough valid samples`，立刻补充更多 `--inputs-json` 再跑，禁止空参重复调用。
+5. 从 top-k 选 1~2 个候选并调用 `evaluate_submission.py`（只用 `--law-text` 传候选代码，不要用 `--candidate/--submission`，也不要传 `--system/--noise`）。
+   - 优先评测最近一次 `fit_pysr_candidates.py` 输出的 top 候选。
+   - 若加入手写对照候选，必须完成评测；最终以“已成功评测候选中指标最优（rmsle 最低，exact_accuracy 次优）”为准。
+   - 调用脚本时只用 `use_skill(run_script)`，不要用 `execute_bash` 去跑 `python3 scripts/*.py`。
+6. 不要执行或建议任何系统级安装命令（如 `sudo/apt-get/yum/dnf/pacman`）；若依赖缺失，仅使用工作目录内用户态方案（`.julia-bin/.julia_depot/.venv`）。
+7. 更新 `findings.md` 与 `plan.md`：
+   - 保留 APPEND 标记；
+   - 在标记前追加本轮结果（`str_replace`）。
+   - `findings.md` 里必须保留并使用以下表头：
+     `| 轮次 | 方法 | 方程 | MSE (训练) | MSE (OOD) | 结论 |`
+   - 若无直接 MSE，请在 MSE 列填 `RMSLE=...`、`Exact=...` 等可比指标。
+   - 每轮必须同时追加：1 条洞察（APPEND_FINDINGS）+ 1 行结果（APPEND_RESULTS）+ 1 条下一步（APPEND_NEXT）。
+   - 指标值只能来自 `evaluate_submission.py` 的 JSON 输出，不要口头估计。
+   - 对本轮最优候选补充：
+     `## 候选方程解析（Round N）`
+     `### 1) 方程与物理解释`
+     `### 2) 参数/系数敏感性`
+     `### 3) 物理洞察`
+     `### 4) 消融分析`
+8. 调用 `finish(...)`：
+   - `message` 必含 `<final_law>def discovered_law(...)</final_law>`；
+   - `<final_law>` 必须是本轮已评测候选中的最优版本（按 rmsle 优先、exact_accuracy 次优），不是最后一次尝试版本；
+   - 在 `finish` 前必须再对最终 `<final_law>` 调用一次 `evaluate_submission.py`，让它成为最后一次成功评测；
+   - 仅当最后一次评测 `rmsle <= 1.0`（且有限值）时可 `task_completed="true"`；否则必须 `task_completed="false"` 并写明下一步。
+
+反锚定提醒：
+- `generate_task_prompt.py` 里的示例表达式不是答案；
+- 若某一结构连续无改进，请切换到不同结构族。
+- 若出现 `math range error`，优先修复表达式数值稳定性（尤其是 `exp` 输入截断）后再评测。
+- `runtime.search_mode=pysr_assisted` 时，未成功调用 `fit_pysr_candidates.py` 不可 `task_completed=true`。
 
 ## 任务
 {description}

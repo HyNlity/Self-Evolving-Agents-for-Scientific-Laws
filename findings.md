@@ -269,6 +269,51 @@
   - `avg_rmsle=1.5485`（仅在有限值 RMSLE 样本上计算）
   - `avg_total_tokens≈31595.7`
 
+## Hamilton 基线对齐分析（2026-03-11）
+
+### 结论摘要
+- 你指出的问题成立：当前 NewtonBench 路线虽然“协议可跑”，但与 Hamilton 原始流程相比，确实发生了方法学漂移。
+- 漂移核心是：候选方程主要由 LLM 直接给出，PySR 没有作为主搜索器参与 NewtonBench 主线。
+
+### 代码证据（关键）
+- 原始 Hamilton 基线配置显式加载 `pysr` skill：`configs/hamilton/config.yaml`。
+- NewtonBench 单题配置仅加载 `newtonbench + evo-protocol`，未加载 `pysr`：`configs/hamilton/newtonbench_single_hard_iter.yaml`。
+- `run_experiment.py` 仅负责调用 benchmark 实验接口返回观测值，不做符号回归。
+- `evaluate_submission.py` 仅评测提交公式，不做搜索。
+- `system_backfill` 机制会在 Agent 未及时更新 L2 时自动补写 findings 表格，保证闭环不断，但也会造成“方法列固定为 system_backfill”的观感。
+
+### 与“之前 Hamilton 流程”的差异
+- 之前流程：LLM 提供物理假设和模板，PySR 在空间内密集搜索，跨轮做连续改进。
+- 当前流程：LLM 频繁提出新候选 -> 直接评测 -> 再换候选，导致表达式家族跳跃明显，局部最优不稳定。
+
+### 需要改造的方向（高优先）
+1. 恢复 PySR 主搜索器地位（NewtonBench 配置并行加载 `pysr`）。
+2. 新增“实验数据缓存层”，把多次 `run_experiment` 的点沉淀成可回归数据集。
+3. 新增 PySR 搜索脚本（top-k 候选），再统一交给 `evaluate_submission` 评测。
+4. 将 `finish(true)` 绑定“已评测最优候选”，防止退化候选覆盖最优。
+5. 提示词从“手写候选主导”改回“LLM 设计搜索空间 + PySR 连续搜索”。
+
+### 工程量评估（粗粒度）
+- 中到大改造（预计 5~7 个工作包，需先做单 hard A/B 验证，再推小批量）。
+
+### P0 第一批已落地（2026-03-11）
+- 配置侧：
+  - NewtonBench 三套配置已并行加载 `pysr` skill，并挂载 `evomaster/skills/pysr` symlink。
+  - `experiment.search_mode` 已加入并默认 `pysr_assisted`，同时保留 `llm_direct` 回退模式。
+  - 协议护栏已回调到轻量设置（移除 symbolic/exact 强门槛，保留核心协议检查）。
+- 能力侧：
+  - 新增 `evomaster/skills/newtonbench/scripts/fit_pysr_candidates.py`：
+    - 可选增量采样（调用 `run_experiment_for_module`）；
+    - 样本缓存到 workspace 本地 jsonl；
+    - 基于累计样本执行 PySR，输出 top-k 候选与 `discovered_law` 模板；
+    - 提供模块级默认算子配置；
+    - 新增 `--health-check` 快速检查 PySR/Julia 环境。
+  - `newtonbench/SKILL.md`、Hamilton NewtonBench prompts、workspace task 模板、README 已同步到“轻量 + PySR-assisted”流程。
+
+### 当前阻断（环境相关，非业务逻辑）
+- 在当前受限沙箱里，PySR 首次运行受 Julia registry 网络访问限制影响（`GitError ... Operation not permitted`），无法完成完整端到端 smoke。
+- 脚本静态校验与参数校验已通过；在可联网且 Julia 可访问 registry 的正常环境中应可执行。
+
 ### 失败模式（从 `newtonbench_trials.csv`）
 - 协议失败样本：
   - `nb_0001_m0_gravity_easy_vanilla_equation_v0_n0p0` 缺少成功 `evaluate_submission`（`evaluate_success_calls=0`）。
@@ -333,3 +378,23 @@
 - 最小改造目标：
   - 在系统提示里强化“若评测不达标必须继续探索，不可输出最终完成答案”；
   - 让 Agent 在提交前显式引用最后一次 `evaluate_submission` 指标（减少自说自话）。
+
+## P0 减法改造结论（2026-03-11）
+
+### 问题
+- NewtonBench 分支代码和 prompt 约束累积过多，偏离“单 Agent + prompt + skill”的轻量原则。
+- 系统回填逻辑过强，容易覆盖 Agent 自主写作空间，导致流程看起来像“系统驱动”而不是“Agent 驱动”。
+
+### 本轮改造（P0）
+- 将默认搜索模式切回 `llm_direct`，PySR 改为可选而非主路径。
+- 将协议校验降到核心闭环：
+  - 成功实验 >=1；
+  - 成功评测 >=1；
+  - `finish.message` 含 `<final_law>def discovered_law(...)</final_law>`。
+- 关闭 NewtonBench 默认系统回填（`auto_backfill_l2=false`），把 findings/plan 的主导权还给 Agent。
+- 精简 prompts 和 task 模板，保留反锚定提醒、回滚策略、APPEND 标记写入规则。
+
+### 预期收益
+- 代码层硬编码约束减少，行为更接近“相信 LLM”的原始设计。
+- 迭代闭环仍保留最低可控性，不会出现“无实验/无评测直接完成”。
+- findings 产出更自然，减少 system_backfill 行为干扰。

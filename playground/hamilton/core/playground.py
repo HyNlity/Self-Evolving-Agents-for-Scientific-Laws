@@ -156,9 +156,13 @@ class HamiltonPlayground(BasePlayground):
                 "# 研究发现\n\n"
                 "## 关键洞察\n"
                 "（经验证的数据观察和物理关系）\n\n"
+                "<!-- APPEND_FINDINGS -->\n\n"
                 "## 实验结果\n"
                 "| 轮次 | 方法 | 方程 | MSE (训练) | MSE (OOD) | 结论 |\n"
                 "|------|------|------|-----------|-----------|------|\n\n"
+                "<!-- APPEND_RESULTS -->\n\n"
+                "## Worth Trying Next\n"
+                "<!-- APPEND_NEXT -->\n\n"
                 "## 最优方程演化\n"
                 "（记录最优方程在各轮中的变化过程）\n",
                 encoding="utf-8",
@@ -184,6 +188,25 @@ class HamiltonPlayground(BasePlayground):
         if not isinstance(experiment_cfg, dict):
             return {}
         return experiment_cfg
+
+    def _get_search_mode(self) -> str:
+        """Get lightweight search mode hint for the agent."""
+        cfg = self._get_experiment_cfg()
+        raw = str(cfg.get("search_mode", "llm_direct") or "llm_direct").strip().lower()
+        if raw in {"llm_direct", "pysr_assisted"}:
+            return raw
+        return "llm_direct"
+
+    def _inject_runtime_hints(self, task_description: str) -> str:
+        """Inject runtime hints into task text without hard-coding behavior in core."""
+        text = str(task_description or "")
+        if "runtime.search_mode:" in text:
+            return text
+        mode = self._get_search_mode()
+        hint = f"runtime.search_mode: {mode}"
+        if not text.strip():
+            return hint
+        return f"{text.rstrip()}\n\n{hint}\n"
 
     def _resolve_workspace_template_dir(self, experiment_cfg: dict) -> Path:
         """Resolve workspace template directory.
@@ -231,7 +254,8 @@ class HamiltonPlayground(BasePlayground):
             self._setup_trajectory_file(output_file)
 
             # 更新实验记录
-            self.experiment_record["task"] = task_description
+            base_task_description = self._inject_runtime_hints(task_description)
+            self.experiment_record["task"] = base_task_description
 
             # 获取最大轮数
             experiment_cfg = self._get_experiment_cfg()
@@ -250,10 +274,10 @@ class HamiltonPlayground(BasePlayground):
                 self.logger.info("=" * 60)
 
                 round_task_description = self._build_round_task_description(
-                    base_task_description=task_description,
+                    base_task_description=base_task_description,
                     round_num=round_num,
                 )
-                if round_task_description != task_description:
+                if round_num > 1 and round_task_description != base_task_description:
                     self.logger.info(
                         "[Round %s] Injected previous-round feedback into task description.",
                         round_num,
@@ -326,7 +350,7 @@ class HamiltonPlayground(BasePlayground):
         return f"{base_task_description.rstrip()}\n\n{feedback_block}\n"
 
     def _build_previous_round_feedback_block(self, previous_round: dict[str, Any]) -> str:
-        """Create a compact, explicit failure-feedback block for the next round."""
+        """Create lightweight previous-round feedback for next round planning."""
         signal = previous_round.get("signal", {})
         if not isinstance(signal, dict):
             return ""
@@ -354,7 +378,7 @@ class HamiltonPlayground(BasePlayground):
         final_signature = protocol.get("final_law_signature")
 
         lines = [
-            "## 系统注入：上一轮失败反馈（必须处理）",
+            "## 系统注入：上一轮反馈",
             f"- 上一轮: round={prev_round_num}, satisfied={satisfied}, task_completed={task_completed}",
             f"- 最近一次评测: {eval_text}",
         ]
@@ -367,10 +391,10 @@ class HamiltonPlayground(BasePlayground):
 
         lines.extend(
             [
-                "- 本轮硬约束:",
-                "1) 必须针对上述失败点提出新假设并使用新的实验参数，不得原样重复上一轮策略。",
-                "2) 在提交 finish(task_completed=\"false\") 前，先更新 findings.md 和 plan.md，写明失败原因与下一轮参数。",
-                "3) 如果上一轮指标未达标，不能在没有新证据的情况下重复提交相同核心方程形式。",
+                "- 本轮建议:",
+                "1) 基于上一轮反馈给出一个新候选或新参数组，不要机械重复。",
+                "2) 先更新 findings.md/plan.md，再 finish。",
+                "3) 若新候选退化，回滚到 plan.md 的“当前最优”。",
             ]
         )
         return "\n".join(lines)

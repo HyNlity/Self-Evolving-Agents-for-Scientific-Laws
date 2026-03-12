@@ -106,3 +106,66 @@ Phase 8（Pilot Benchmark：easy36 已跑通，进入失败模式驱动改造）
 | NewtonBench 能力尽量下沉到 skill 脚本 | 减少 core 硬编码，保持“prompt+skill”理念 |
 | 先跑通链路，再补协议护栏与评测流水线 | 先确保可执行，再提升可靠性和可比性 |
 | 先做 pilot 再全量 324 tasks | 控制成本，先验证改造方向有效 |
+
+---
+
+## Phase 11: Hamilton 基线流程对齐（PySR 回归）— `pending`
+
+### 背景判断
+- 当前 NewtonBench 流程可跑通协议，但搜索主力已偏向 LLM 手写候选，和 Hamilton 原始“PySR 主搜索器”路线不一致。
+- 结果表现为：候选表达式跨轮跳跃较大、局部变好后退化、缺少稳定的“空间内连续搜索”。
+
+### 目标
+在不丢失 NewtonBench 交互协议的前提下，恢复 Hamilton 的核心范式：
+- LLM 负责假设与搜索空间设计；
+- PySR 负责候选表达式密集搜索；
+- 评测脚本负责闭环打分；
+- plan/findings 负责跨轮记忆与回滚。
+
+### 工作包（建议顺序）
+
+#### WP1: 运行模式双轨化（`llm_direct` / `pysr_assisted`）— `pending`
+- [x] 在 NewtonBench 配置中增加 `search_mode`，默认 hard 任务使用 `pysr_assisted`。
+- [x] 保留 `llm_direct` 作为回退路径，避免一次性替换导致不可运行。
+
+#### WP2: Skill 组合恢复 PySR 主线 — `pending`
+- [x] NewtonBench 配置同时加载 `newtonbench + pysr + evo-protocol`。
+- [x] session symlink 同时挂载 `evomaster/skills/pysr` 到 workspace。
+- [x] 提前做 PySR 环境健康检查（Julia/依赖）。
+
+#### WP3: 数据集缓存层（实验数据 -> 回归数据）— `pending`
+- [x] 新增数据采样与落盘规范（按 module/system/difficulty/law_version/noise 分桶）。
+- [x] 去重并累计跨轮实验点，避免每轮从零开始。
+- [x] 输出标准训练表（`X,y`）供 PySR 使用。
+
+#### WP4: PySR 搜索脚本化 — `pending`
+- [x] 新增 `newtonbench` skill 脚本：`fit_pysr_candidates.py`（输入 dataset + operator/template，输出 top-k 候选）。
+- [x] 支持模块级 operator/template 配置（避免单一算子空间覆盖全部物理域）。
+- [x] 输出可直接转成 `def discovered_law(...)` 的候选代码片段。
+
+#### WP5: 候选自动评测与最优回滚 — `pending`
+- [ ] 每轮先评测 top-k 候选，再让 Agent做最终选择与解释。
+- [ ] 强化 CURRENT_BEST 绑定：`finish(task_completed=true)` 只能提交当轮已评测最优解。
+- [ ] 退化时自动回滚上轮最优，防止表达式漂移。
+
+#### WP6: Prompt 回归“PySR 为主”语义 — `pending`
+- [ ] 在 `hamilton_newtonbench_system/user` 中恢复“LLM 设计空间，PySR 密集搜索”的工作流约束。
+- [ ] 保留现有反锚定、APPEND 标记位、协议闭环要求。
+- [ ] 降低“频繁手写候选 + 频繁 finish”的行为倾向。
+
+#### WP7: 指标与验收标准 — `pending`
+- [ ] 新增过程指标：`pysr_runs`, `candidate_count`, `topk_evaluated_count`。
+- [ ] 对比指标：`protocol_full_ok`, `symbolic_equivalent`, `exact_accuracy`, `rmsle`, `best_so_far_stability`。
+- [ ] 先在单 hard 任务做 A/B（llm_direct vs pysr_assisted），再扩展 small batch。
+
+### 风险清单
+- PySR 依赖与耗时风险（Julia 环境/长时搜索）。
+- 某些模块的目标表达式对 operator/template 敏感，需模块化配置。
+- 过强协议门槛可能导致“永不完成”，需和 `max_rounds` 协同调参。
+
+### Phase 11.2: P0 轻量回归（单 Agent 优先）— `complete`
+- [x] 关闭 NewtonBench 默认 system backfill，避免系统过度介入 findings/plan。
+- [x] 协议护栏收敛到核心闭环（run_experiment + evaluate_submission + final_law）。
+- [x] 默认搜索模式切回 `llm_direct`，PySR 作为可选能力保留。
+- [x] 简化上一轮反馈注入与 NewtonBench prompts，减少硬约束措辞。
+- [x] 重写 NewtonBench task 模板，保留 APPEND 标记与最小记录规范。

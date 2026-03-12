@@ -391,11 +391,29 @@ class OpenAILLM(BaseLLM):
             )
 
         # API key 必须在配置中提供
-        if not self.config.api_key:
+        api_key = str(self.config.api_key or "").strip()
+        if not api_key:
             raise ValueError("OpenAI API key must be provided in config")
 
+        # Fast-fail on obvious placeholder keys to avoid confusing 401s later.
+        placeholder_keys = {
+            "<your_key>",
+            "your_key",
+            "<openai_api_key>",
+            "openai_api_key",
+            "sk-your-key",
+            "sk-xxxx",
+            "changeme",
+        }
+        key_lower = api_key.lower()
+        if key_lower in placeholder_keys or (api_key.startswith("<") and api_key.endswith(">")):
+            raise ValueError(
+                "OpenAI API key looks like a placeholder. "
+                "Please set OPENAI_API_KEY to a real key before running."
+            )
+
         # 创建客户端
-        client_kwargs = {"api_key": self.config.api_key}
+        client_kwargs = {"api_key": api_key}
         if self.config.base_url:
             client_kwargs["base_url"] = self.config.base_url
 

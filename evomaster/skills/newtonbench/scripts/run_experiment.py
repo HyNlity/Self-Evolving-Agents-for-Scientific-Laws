@@ -74,6 +74,18 @@ def normalize_payload(module_name: str, payload: dict[str, Any]) -> dict[str, An
         for src, dst in alias_map.items():
             if src in data and dst not in data:
                 data[dst] = data[src]
+    if module_name == "m10_be_distribution":
+        # NewtonBench m10 complex-system experiment API uses
+        # temperature/center_frequency(/bandwidth), while discovered_law
+        # signature is discovered_law(omega, T). Keep both aliases in sync.
+        if "omega" in data and "center_frequency" not in data:
+            data["center_frequency"] = data["omega"]
+        if "T" in data and "temperature" not in data:
+            data["temperature"] = data["T"]
+        if "center_frequency" in data and "omega" not in data:
+            data["omega"] = data["center_frequency"]
+        if "temperature" in data and "T" not in data:
+            data["T"] = data["temperature"]
     return data
 
 

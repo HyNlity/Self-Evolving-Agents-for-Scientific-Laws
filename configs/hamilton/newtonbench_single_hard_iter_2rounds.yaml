@@ -32,6 +32,7 @@ agents:
 
     skills:
       - newtonbench
+      - pysr
       - evo-protocol
 
     tools:
@@ -47,6 +48,7 @@ session:
     cpu_devices: null
     symlinks:
       "evomaster/skills/newtonbench": "skills/newtonbench"
+      "evomaster/skills/pysr": "skills/pysr"
 
 experiment:
   record_dir: "./playground/hamilton/records"
@@ -55,10 +57,13 @@ experiment:
   workspace_template: "playground/hamilton/workspace_newtonbench"
   seed_input_csv: false
   require_input_csv: false
+  search_mode: "pysr_assisted"
+  auto_backfill_l2: false
   newtonbench_protocol:
     require_signature_match: true
     require_finite_rmsle: true
-    max_rmsle: 2.0
+    require_pysr_assisted_call: true
+    max_rmsle: 1.0
 
 llm_output:
   show_in_console: true
@@ -71,4 +76,3 @@ logging:
 
 project_root: "."
 debug: false
-

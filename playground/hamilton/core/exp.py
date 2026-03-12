@@ -26,6 +26,9 @@ from evomaster.utils.types import TaskInstance
 
 
 FINAL_LAW_BLOCK_RE = re.compile(r"<final_law>\s*(.*?)\s*</final_law>", re.S)
+FINAL_LAW_STANDALONE_BLOCK_RE = re.compile(
+    r"(?ms)^[ \t]*<final_law>[ \t]*\n(.*?)\n[ \t]*</final_law>[ \t]*$"
+)
 DISCOVERED_LAW_SIGNATURE_RE = re.compile(r"<final_law>\s*def\s+discovered_law\s*\(", re.S)
 DISCOVERED_LAW_DEF_RE = re.compile(r"def\s+discovered_law\s*\((.*?)\)\s*:", re.S)
 
@@ -74,15 +77,30 @@ class RoundExp(BaseExp):
         self.logger.info(f"[Round {self.round_num}] Agent completed")
 
         # 解析 satisfied 信号（系统唯一职责：决定是否继续迭代）
-        signal = self._parse_signal(agent_result, trajectory, task_description=task_description)
-        finish_message = self._extract_finish_message_from_trajectory(trajectory)
+        raw_finish_message = self._extract_finish_message_from_trajectory(trajectory)
+        finish_message = self._resolve_finish_message_with_eval_fallback(
+            trajectory=trajectory,
+            finish_message=raw_finish_message,
+        )
+        signal = self._parse_signal(
+            agent_result,
+            trajectory,
+            task_description=task_description,
+            finish_message_override=finish_message,
+        )
 
         # L2 post-check: Agent 是否更新了 L2？
         unchanged = self._check_l2_promotion(l2_snapshot)
-        self._system_backfill_l2(signal=signal, finish_message=finish_message, unchanged=unchanged)
-        if self._is_newtonbench_task(task_description):
-            self._ensure_findings_table_row(signal=signal, finish_message=finish_message)
-            self._ensure_newtonbench_findings_section(signal=signal, finish_message=finish_message)
+        is_newtonbench = self._is_newtonbench_task(task_description)
+
+        # Lightweight mode: keep only best-memory sync by default for NewtonBench.
+        if is_newtonbench:
+            self._sync_current_best_from_protocol(signal=signal, finish_message=finish_message)
+            self._sync_findings_eval_from_protocol(signal=signal, finish_message=finish_message)
+
+        # Optional fallback when Agent skipped L2 promotion.
+        if unchanged and self._should_system_backfill(is_newtonbench=is_newtonbench):
+            self._system_backfill_l2(signal=signal, finish_message=finish_message, unchanged=unchanged)
 
         findings_content = self._read_findings()
 
@@ -167,6 +185,23 @@ class RoundExp(BaseExp):
             )
         return unchanged
 
+    def _should_system_backfill(self, is_newtonbench: bool) -> bool:
+        """Whether system should auto-write findings/plan when agent skipped promotion.
+
+        Default behavior:
+        - NewtonBench: disabled (keep single-agent ownership of findings/plan).
+        - Others: enabled as a safety fallback.
+        """
+        try:
+            experiment_cfg = getattr(self.config, "experiment", {})
+            if isinstance(experiment_cfg, dict):
+                configured = experiment_cfg.get("auto_backfill_l2")
+                if isinstance(configured, bool):
+                    return configured
+        except Exception:
+            pass
+        return not is_newtonbench
+
     def _system_backfill_l2(self, signal: dict[str, Any], finish_message: str, unchanged: list[str]) -> None:
         """Auto-backfill L2 files when agent skipped promotion.
 
@@ -183,95 +218,6 @@ class RoundExp(BaseExp):
             self._append_system_round_to_findings(signal=signal, finish_message=finish_message)
         if "plan.md" in unchanged:
             self._append_system_round_to_plan(signal=signal)
-
-    def _ensure_findings_table_row(self, signal: dict[str, Any], finish_message: str) -> None:
-        """Ensure this round has one row in findings experiment table."""
-        if not self.run_dir:
-            return
-        findings_file = self.run_dir / "findings.md"
-        if not findings_file.exists():
-            return
-        final_law_code = self._extract_final_law_code(finish_message)
-        self._upsert_findings_experiment_row(
-            findings_file=findings_file,
-            signal=signal,
-            final_law_code=final_law_code,
-        )
-
-    def _ensure_newtonbench_findings_section(self, signal: dict[str, Any], finish_message: str) -> None:
-        """Ensure findings.md has structured per-round section required by NewtonBench template."""
-        if not self.run_dir:
-            return
-        findings_file = self.run_dir / "findings.md"
-        if not findings_file.exists():
-            return
-
-        existing = findings_file.read_text(encoding="utf-8")
-        marker = f"<!-- HAM_FINDINGS_TEMPLATE_ROUND_{self.round_num} -->"
-        if marker in existing:
-            return
-
-        round_section_re = re.compile(
-            rf"##\s*候选方程解析[（(]\s*Round\s*{self.round_num}\s*[)）]",
-            flags=re.I,
-        )
-        if round_section_re.search(existing):
-            return
-
-        protocol = signal.get("protocol", {})
-        if not isinstance(protocol, dict):
-            protocol = {}
-        last_eval = protocol.get("last_evaluation", {})
-        if not isinstance(last_eval, dict):
-            last_eval = {}
-
-        final_law_code = self._extract_final_law_code(finish_message)
-        equation = self._extract_return_expression(final_law_code)
-        if not equation:
-            equation = self._extract_final_law_signature(final_law_code) or "N/A"
-        equation = self._compact_text(equation, limit=140).replace("|", "/")
-
-        metric_line = (
-            f"rmsle={self._format_metric(last_eval.get('rmsle'))}, "
-            f"exact_accuracy={self._format_metric(last_eval.get('exact_accuracy'))}, "
-            f"symbolic_equivalent={self._format_metric(last_eval.get('symbolic_equivalent'))}"
-        )
-
-        lines = [
-            "",
-            marker,
-            f"## 候选方程解析（Round {self.round_num}）",
-            "### 1) 方程与物理解释",
-            f"- 方程：`{equation}`",
-            "- 项解释：待补充（请逐项解释变量、算子与物理机制）。",
-            "",
-            "### 2) 系数表（跨实验条件）",
-            "| 系数 | 数值/范围 | 稳定性标注 | 物理解释 |",
-            "|------|-----------|------------|----------|",
-            "| 待补充 | 待补充 | 结构属性/情景属性 | 待补充 |",
-            "",
-            "### 3) 物理洞察",
-            f"- 当前评测：{metric_line}",
-            "- 规律解释：待补充（如尺度关系、主导项、极限行为）。",
-            "",
-            "### 4) 消融分析",
-            "- 去掉关键项 A：待补充",
-            "- 去掉关键项 B：待补充",
-        ]
-
-        if final_law_code:
-            lines.extend(
-                [
-                    "",
-                    "- 本轮候选函数：",
-                    "```python",
-                    *final_law_code.splitlines(),
-                    "```",
-                ]
-            )
-
-        with findings_file.open("a", encoding="utf-8") as f:
-            f.write("\n".join(lines) + "\n")
 
     def _append_system_round_to_findings(self, signal: dict[str, Any], finish_message: str) -> None:
         if not self.run_dir:
@@ -297,6 +243,8 @@ class RoundExp(BaseExp):
             signal=signal,
             final_law_code=final_law_code,
         )
+        self._normalize_findings_experiment_table(findings_file)
+        self._normalize_findings_body_sections(findings_file)
 
         marker = f"<!-- HAM_SYS_BACKFILL_ROUND_{self.round_num} -->"
         existing_after_table_sync = findings_file.read_text(encoding="utf-8")
@@ -341,6 +289,37 @@ class RoundExp(BaseExp):
             findings_file,
         )
 
+    def _sync_findings_eval_from_protocol(self, signal: dict[str, Any], finish_message: str) -> None:
+        """Force authoritative per-round eval row into findings.md.
+
+        Values are parsed from protocol.last_evaluation (tool outputs), not agent prose.
+        """
+        if not self.run_dir or not isinstance(signal, dict):
+            return
+        findings_file = self.run_dir / "findings.md"
+        if not findings_file.exists():
+            return
+
+        protocol = signal.get("protocol", {})
+        if not isinstance(protocol, dict):
+            return
+        eval_calls = int(protocol.get("evaluate_submission_calls", 0) or 0)
+        if eval_calls < 1:
+            return
+
+        final_law_code = self._extract_final_law_code(finish_message)
+        self._upsert_findings_experiment_row(
+            findings_file=findings_file,
+            signal=signal,
+            final_law_code=final_law_code,
+        )
+        self._normalize_findings_experiment_table(findings_file)
+        self._normalize_findings_body_sections(findings_file)
+        self.logger.info(
+            "[Round %s] Synced authoritative eval metrics to findings.md",
+            self.round_num,
+        )
+
     def _upsert_findings_experiment_row(
         self,
         findings_file: Path,
@@ -362,10 +341,6 @@ class RoundExp(BaseExp):
         if header_idx < 0 or sep_idx < 0:
             return
 
-        row_prefix = f"| Round {self.round_num} |"
-        if any(ln.strip().startswith(row_prefix) for ln in lines):
-            return
-
         protocol = signal.get("protocol", {})
         if not isinstance(protocol, dict):
             protocol = {}
@@ -373,22 +348,46 @@ class RoundExp(BaseExp):
         if not isinstance(last_eval, dict):
             last_eval = {}
 
-        equation = self._extract_return_expression(final_law_code)
+        # Prefer the actually evaluated expression from tool output.
+        submitted_expr = str(last_eval.get("submitted_return_expr") or "").strip()
+        equation = submitted_expr or self._extract_return_expression(final_law_code)
         if not equation:
             equation = self._extract_final_law_signature(final_law_code) or "N/A"
         equation = self._compact_text(equation, limit=96).replace("|", "/")
 
         task_completed = str(signal.get("task_completed") or "").strip().lower() == "true"
+        rmsle_text = self._format_metric(last_eval.get("rmsle"))
+        exact_text = self._format_metric(last_eval.get("exact_accuracy"))
+        symbolic_text = self._format_metric(last_eval.get("symbolic_equivalent"))
+        eval_error = str(last_eval.get("error") or "").strip()
+
+        mse_train = f"RMSLE={rmsle_text}"
+        mse_ood = f"Exact={exact_text}"
         conclusion = (
             f"{'完成' if task_completed else '未完成'}; "
-            f"RMSLE={self._format_metric(last_eval.get('rmsle'))}; "
-            f"exact={self._format_metric(last_eval.get('exact_accuracy'))}; "
-            f"symbolic={self._format_metric(last_eval.get('symbolic_equivalent'))}"
+            f"symbolic={symbolic_text}; source=protocol_eval"
         )
+        if eval_error:
+            conclusion += f"; error={self._compact_text(eval_error, limit=48)}"
+        conclusion = conclusion.replace("|", "/")
 
-        row = (
-            f"| Round {self.round_num} | system_backfill | `{equation}` | - | - | {conclusion} |"
-        )
+        row = f"| {self.round_num} | protocol_eval | `{equation}` | {mse_train} | {mse_ood} | {conclusion} |"
+
+        existing_indices: list[int] = []
+        for idx in range(sep_idx + 1, len(lines)):
+            line = lines[idx]
+            if not line.lstrip().startswith("|"):
+                continue
+            existing_round = self._extract_round_num_from_table_row(line)
+            if existing_round == self.round_num:
+                existing_indices.append(idx)
+
+        if existing_indices:
+            lines[existing_indices[0]] = row
+            for idx in reversed(existing_indices[1:]):
+                del lines[idx]
+            findings_file.write_text("\n".join(lines).rstrip() + "\n", encoding="utf-8")
+            return
 
         insert_at = sep_idx + 1
         while insert_at < len(lines) and lines[insert_at].lstrip().startswith("|"):
@@ -400,10 +399,404 @@ class RoundExp(BaseExp):
 
         findings_file.write_text("\n".join(lines).rstrip() + "\n", encoding="utf-8")
 
+    def _normalize_findings_experiment_table(self, findings_file: Path) -> None:
+        """Normalize findings experiment table layout and ordering.
+
+        Some rounds may insert free-text analysis into the table region. This
+        method rebuilds the table rows from recorded round rows, keeps them
+        sorted by round number, and moves non-table lines outside the table.
+        """
+        text = findings_file.read_text(encoding="utf-8")
+        lines = text.splitlines()
+
+        header_idx = -1
+        sep_idx = -1
+        for i, line in enumerate(lines):
+            if line.strip().startswith("| 轮次 | 方法 | 方程 |"):
+                header_idx = i
+                if i + 1 < len(lines) and lines[i + 1].strip().startswith("|------|"):
+                    sep_idx = i + 1
+                break
+        if header_idx < 0 or sep_idx < 0:
+            return
+
+        marker_idx = -1
+        for i in range(sep_idx + 1, len(lines)):
+            if "<!-- APPEND_RESULTS -->" in lines[i]:
+                marker_idx = i
+                break
+        if marker_idx < 0:
+            for i in range(sep_idx + 1, len(lines)):
+                if lines[i].startswith("## "):
+                    marker_idx = i
+                    break
+        if marker_idx < 0:
+            marker_idx = len(lines)
+
+        body_lines = lines[sep_idx + 1 : marker_idx]
+        rows_by_round: dict[int, str] = {}
+        non_round_table_rows: list[str] = []
+        extra_lines: list[str] = []
+
+        for line in body_lines:
+            stripped = line.strip()
+            if not stripped:
+                continue
+            if stripped.startswith("|"):
+                round_num = self._extract_round_num_from_table_row(stripped)
+                if round_num is None:
+                    non_round_table_rows.append(stripped)
+                else:
+                    rows_by_round[round_num] = stripped
+            else:
+                extra_lines.append(line)
+
+        sorted_round_rows = [rows_by_round[k] for k in sorted(rows_by_round)]
+        rebuilt_table_lines = [
+            lines[header_idx],
+            lines[sep_idx],
+            *sorted_round_rows,
+            *non_round_table_rows,
+        ]
+
+        marker_line = "<!-- APPEND_RESULTS -->"
+        marker_from_source = marker_idx < len(lines) and "<!-- APPEND_RESULTS -->" in lines[marker_idx]
+        if marker_from_source:
+            marker_line = lines[marker_idx]
+
+        after_marker_start = marker_idx + 1 if marker_from_source else marker_idx
+        tail_lines = lines[after_marker_start:]
+
+        rebuilt_block = rebuilt_table_lines + ["", marker_line]
+        if extra_lines:
+            rebuilt_block += [""] + extra_lines
+
+        new_lines = lines[:header_idx] + rebuilt_block + tail_lines
+
+        compact_lines: list[str] = []
+        prev_blank = False
+        for line in new_lines:
+            is_blank = line.strip() == ""
+            if is_blank and prev_blank:
+                continue
+            compact_lines.append(line)
+            prev_blank = is_blank
+
+        findings_file.write_text("\n".join(compact_lines).rstrip() + "\n", encoding="utf-8")
+
+    def _normalize_findings_body_sections(self, findings_file: Path) -> None:
+        """Normalize free-text sections and keep only the latest round analysis block."""
+        text = findings_file.read_text(encoding="utf-8")
+        lines = text.splitlines()
+
+        lines = self._normalize_key_findings_section(lines)
+        lines = self._normalize_worth_trying_next_section(lines)
+        lines = self._keep_latest_candidate_analysis_section(lines)
+
+        compact_lines: list[str] = []
+        prev_blank = False
+        for line in lines:
+            is_blank = line.strip() == ""
+            if is_blank and prev_blank:
+                continue
+            compact_lines.append(line)
+            prev_blank = is_blank
+
+        findings_file.write_text("\n".join(compact_lines).rstrip() + "\n", encoding="utf-8")
+
+    def _normalize_key_findings_section(self, lines: list[str]) -> list[str]:
+        """Render key findings as per-round physical insights."""
+        header_idx = -1
+        marker_idx = -1
+        for i, line in enumerate(lines):
+            if line.strip() == "## 关键洞察":
+                header_idx = i
+                break
+        if header_idx < 0:
+            return lines
+
+        for i in range(header_idx + 1, len(lines)):
+            if "<!-- APPEND_FINDINGS -->" in lines[i]:
+                marker_idx = i
+                break
+        if marker_idx < 0 or marker_idx <= header_idx:
+            return lines
+
+        body = lines[header_idx + 1 : marker_idx]
+        placeholder = "（经验证的数据观察和物理关系）"
+        for line in body:
+            stripped = line.strip()
+            if stripped.startswith("（") and stripped.endswith("）"):
+                placeholder = stripped
+                break
+
+        round_summaries = self._extract_round_summaries_from_experiment_table(lines)
+        rebuilt_body: list[str] = [placeholder, ""]
+        for round_num in sorted(round_summaries):
+            summary = round_summaries[round_num]
+            rebuilt_body.append(f"### Round {round_num}")
+            for insight in self._build_physical_insight_for_round(summary):
+                rebuilt_body.append(f"- {insight}")
+            rebuilt_body.append("")
+
+        return lines[: header_idx + 1] + rebuilt_body + lines[marker_idx:]
+
+    def _normalize_worth_trying_next_section(self, lines: list[str]) -> list[str]:
+        """Render next-step section as per-round structured actions."""
+        header_idx = -1
+        marker_idx = -1
+        marker_line = "<!-- APPEND_NEXT -->"
+        for i, line in enumerate(lines):
+            if line.strip() == "## Worth Trying Next":
+                header_idx = i
+                break
+        if header_idx < 0:
+            return lines
+
+        for i in range(header_idx + 1, len(lines)):
+            if "<!-- APPEND_NEXT -->" in lines[i]:
+                marker_idx = i
+                marker_line = lines[i]
+                break
+        marker_found = marker_idx >= 0
+        if marker_idx < 0:
+            for i in range(header_idx + 1, len(lines)):
+                if lines[i].startswith("## "):
+                    marker_idx = i
+                    break
+            if marker_idx < 0:
+                marker_idx = len(lines)
+        if marker_idx <= header_idx:
+            return lines
+
+        round_summaries = self._extract_round_summaries_from_experiment_table(lines)
+        best_rmsle: float | None = None
+        for summary in round_summaries.values():
+            val = summary.get("rmsle")
+            if isinstance(val, float) and math.isfinite(val):
+                best_rmsle = val if best_rmsle is None else min(best_rmsle, val)
+
+        rebuilt_body: list[str] = []
+        for round_num in sorted(round_summaries):
+            summary = round_summaries[round_num]
+            rebuilt_body.append(f"### Round {round_num} -> Next")
+            for item in self._build_next_actions_for_round(summary, best_rmsle):
+                rebuilt_body.append(f"- {item}")
+            rebuilt_body.append("")
+
+        prefix = lines[: header_idx + 1]
+        suffix = lines[marker_idx + 1 :] if marker_found else lines[marker_idx:]
+        return prefix + rebuilt_body + [marker_line] + suffix
+
+    def _extract_round_summaries_from_experiment_table(
+        self,
+        lines: list[str],
+    ) -> dict[int, dict[str, str]]:
+        """Extract per-round metrics/conclusion from findings experiment table."""
+        header_idx = -1
+        sep_idx = -1
+        for i, line in enumerate(lines):
+            if line.strip().startswith("| 轮次 | 方法 | 方程 |"):
+                header_idx = i
+                if i + 1 < len(lines) and lines[i + 1].strip().startswith("|------|"):
+                    sep_idx = i + 1
+                break
+        if header_idx < 0 or sep_idx < 0:
+            return {}
+
+        marker_idx = -1
+        for i in range(sep_idx + 1, len(lines)):
+            if "<!-- APPEND_RESULTS -->" in lines[i]:
+                marker_idx = i
+                break
+        if marker_idx < 0:
+            marker_idx = len(lines)
+
+        summaries: dict[int, dict[str, Any]] = {}
+        for line in lines[sep_idx + 1 : marker_idx]:
+            stripped = line.strip()
+            if not stripped.startswith("|"):
+                continue
+            round_num = self._extract_round_num_from_table_row(stripped)
+            if round_num is None:
+                continue
+            parts = [cell.strip() for cell in stripped.split("|")[1:-1]]
+            if len(parts) < 6:
+                continue
+            equation = parts[2].strip().strip("`")
+            rmsle = self._parse_metric_value(parts[3], "RMSLE")
+            exact = self._parse_metric_value(parts[4], "Exact")
+            summaries[round_num] = {
+                "round": round_num,
+                "equation": equation,
+                "mse_train": parts[3],
+                "mse_ood": parts[4],
+                "conclusion": parts[5],
+                "rmsle": rmsle,
+                "exact": exact,
+            }
+        return summaries
+
+    def _parse_metric_value(self, text: str, metric_name: str) -> float | None:
+        if not isinstance(text, str):
+            return None
+        pattern = rf"{re.escape(metric_name)}\s*=\s*([-+]?\d*\.?\d+(?:[eE][-+]?\d+)?)"
+        m = re.search(pattern, text)
+        if not m:
+            return None
+        return self._safe_float(m.group(1))
+
+    def _build_physical_insight_for_round(self, summary: dict[str, Any]) -> list[str]:
+        equation = str(summary.get("equation", "") or "")
+        expr = equation.lower()
+        has_exp = "exp(" in expr
+        has_ratio = ("omega/t" in expr) or ("omega / t" in expr)
+        has_log = "log(" in expr
+        has_sqrt = "sqrt(" in expr
+        has_poly = "**" in expr
+        be_like = has_exp and has_ratio
+
+        if be_like:
+            mechanism = "机制判读：方程包含 `exp(omega/T)` 型核心结构，反映了热激发下占据数随能量比上升而衰减的统计机制。"
+        elif has_exp:
+            mechanism = "机制判读：出现指数项，说明模型在尝试表达热激发机制，但无量纲比值结构（omega/T）仍不完整。"
+        else:
+            mechanism = "机制判读：当前主要是经验拟合项（多项式/对数/根号），更偏插值形态，物理机制解释较弱。"
+
+        if has_ratio:
+            scene = "情境关联：任务为黑体腔+带通滤波+量热测功率，`omega/T` 的无量纲耦合与该物理情境一致。"
+        else:
+            scene = "情境关联：当前形式未显式体现 `omega/T` 主导关系，与黑体辐射情境的关联仍偏弱。"
+
+        if be_like and not (has_log or has_sqrt or has_poly):
+            literature = "文献对照：与经典 Bose-Einstein/Planck 家族同型；主要差异在常数标定，尚未出现明显“新项”。"
+        elif has_log or has_sqrt or has_poly:
+            literature = "文献对照：存在 log/sqrt/高阶多项式等修正项，经典文献中通常不是主导项，需额外证据支持其物理真实性。"
+        else:
+            literature = "文献对照：与经典 `1/(exp(c*omega/T)-1)` 仍有结构差距，暂不支持“新规律”结论。"
+
+        return [mechanism, scene, literature]
+
+    def _build_next_actions_for_round(
+        self,
+        summary: dict[str, Any],
+        best_rmsle: float | None,
+    ) -> list[str]:
+        equation = str(summary.get("equation", "") or "")
+        expr = equation.lower()
+        rmsle = summary.get("rmsle")
+        has_exp = "exp(" in expr
+        has_ratio = ("omega/t" in expr) or ("omega / t" in expr)
+        has_log = "log(" in expr
+        has_sqrt = "sqrt(" in expr
+        has_poly = "**" in expr
+
+        if isinstance(rmsle, float) and math.isfinite(rmsle):
+            if rmsle > 1.0:
+                target = "目标：先把误差降到 `RMSLE < 1`，再讨论符号等价。"
+            else:
+                target = "目标：在保持低 RMSLE 的同时提升符号一致性与物理可解释性。"
+        else:
+            target = "目标：先获得稳定可评测结果（避免 NaN / overflow）。"
+
+        if not has_exp:
+            action = "动作：切换到 `1/(exp(c*omega/T)-k)` 结构族，避免继续纯多项式/对数经验拟合。"
+        elif has_exp and not has_ratio:
+            action = "动作：重写为 `omega/T` 无量纲输入，并重新做常数扫描。"
+        elif has_log or has_sqrt or has_poly:
+            action = "动作：做消融（先去 log/sqrt/高阶项），保留最小可解释结构后再评测。"
+        else:
+            action = "动作：固定当前结构族，仅微调常数并补充极端温频样本验证稳健性。"
+
+        if best_rmsle is not None and math.isfinite(best_rmsle):
+            criterion = (
+                f"验收：新候选需优于当前最优（RMSLE < {best_rmsle:.6g}），"
+                "且 `evaluate_submission` 无 `math range error`。"
+            )
+        else:
+            criterion = "验收：`evaluate_submission` 成功，且 RMSLE 持续下降。"
+
+        return [target, action, criterion]
+
+    def _dedupe_lines_before_marker(
+        self,
+        lines: list[str],
+        section_header: str,
+        marker: str,
+    ) -> list[str]:
+        header_idx = -1
+        marker_idx = -1
+        for i, line in enumerate(lines):
+            if line.strip() == section_header:
+                header_idx = i
+                break
+        if header_idx < 0:
+            return lines
+
+        for i in range(header_idx + 1, len(lines)):
+            if marker in lines[i]:
+                marker_idx = i
+                break
+        if marker_idx < 0 or marker_idx <= header_idx:
+            return lines
+
+        body = lines[header_idx + 1 : marker_idx]
+        deduped: list[str] = []
+        seen: set[str] = set()
+        for line in body:
+            stripped = line.strip()
+            if not stripped:
+                continue
+            # Normalize bullet style so plain line / "- line" are treated as duplicates.
+            key = re.sub(r"^[-*]\s+", "", stripped)
+            if key in seen:
+                continue
+            seen.add(key)
+            deduped.append(line)
+
+        return lines[: header_idx + 1] + deduped + [""] + lines[marker_idx:]
+
+    def _keep_latest_candidate_analysis_section(self, lines: list[str]) -> list[str]:
+        pattern = re.compile(r"^##\s*候选方程解析[（(]\s*Round\s*(\d+)\s*[)）]\s*$")
+
+        heads: list[tuple[int, int]] = []
+        for i, line in enumerate(lines):
+            m = pattern.match(line.strip())
+            if m:
+                try:
+                    heads.append((i, int(m.group(1))))
+                except Exception:
+                    continue
+
+        if len(heads) <= 1:
+            return lines
+
+        keep_start, keep_round = max(heads, key=lambda x: (x[1], x[0]))
+        keep_set = {(keep_start, keep_round)}
+
+        ranges_to_remove: list[tuple[int, int]] = []
+        for idx, (start, round_num) in enumerate(heads):
+            if (start, round_num) in keep_set:
+                continue
+            end = len(lines)
+            for j in range(start + 1, len(lines)):
+                if lines[j].startswith("## "):
+                    end = j
+                    break
+            ranges_to_remove.append((start, end))
+
+        for start, end in sorted(ranges_to_remove, reverse=True):
+            del lines[start:end]
+
+        return lines
+
     def _extract_round_num_from_table_row(self, row: str) -> int | None:
         if not isinstance(row, str):
             return None
-        m = re.match(r"^\|\s*Round\s+(\d+)\s*\|", row.strip(), flags=re.I)
+        stripped = row.strip()
+        m = re.match(r"^\|\s*Round\s+(\d+)\s*\|", stripped, flags=re.I)
+        if not m:
+            m = re.match(r"^\|\s*(\d+)\s*\|", stripped, flags=re.I)
         if not m:
             return None
         try:
@@ -419,6 +812,12 @@ class RoundExp(BaseExp):
             if stripped.startswith("return "):
                 return stripped[len("return ") :].strip()
         return ""
+
+    def _normalize_expr_for_compare(self, expr: str) -> str:
+        if not isinstance(expr, str):
+            return ""
+        # Keep comparison lightweight and robust to formatting-only differences.
+        return re.sub(r"\s+", "", expr)
 
     def _compact_text(self, text: str, limit: int = 120) -> str:
         if not isinstance(text, str):
@@ -476,14 +875,317 @@ class RoundExp(BaseExp):
             plan_file,
         )
 
+    def _sync_current_best_from_protocol(self, signal: dict[str, Any], finish_message: str) -> None:
+        """System-side CURRENT_BEST maintenance using marker-bounded replacement."""
+        if not self.run_dir:
+            return
+        plan_file = self.run_dir / "plan.md"
+        if not plan_file.exists():
+            return
+
+        protocol = signal.get("protocol", {})
+        if not isinstance(protocol, dict):
+            return
+
+        eval_success_calls = int(protocol.get("evaluate_submission_success_calls", 0) or 0)
+        if eval_success_calls < 1:
+            return
+
+        last_eval = protocol.get("last_evaluation", {})
+        if not isinstance(last_eval, dict):
+            return
+
+        symbolic_equivalent = last_eval.get("symbolic_equivalent")
+        if not isinstance(symbolic_equivalent, bool):
+            symbolic_equivalent = None
+        exact_accuracy = self._safe_float(last_eval.get("exact_accuracy"))
+        rmsle = self._safe_float(last_eval.get("rmsle"))
+        if symbolic_equivalent is None and exact_accuracy is None and rmsle is None:
+            return
+
+        final_law_code = self._extract_final_law_code(finish_message)
+        submitted_law = str(last_eval.get("submitted_law") or "").strip()
+        canonical_law_code = submitted_law or final_law_code.strip()
+        equation = self._extract_return_expression(canonical_law_code)
+        if not equation:
+            equation = self._extract_final_law_signature(canonical_law_code) or "N/A"
+        equation = self._compact_text(equation, limit=140).replace("\n", " ").replace("|", "/")
+
+        candidate = {
+            "round": self.round_num,
+            "equation": equation,
+            "symbolic_equivalent": symbolic_equivalent,
+            "exact_accuracy": exact_accuracy,
+            "rmsle": rmsle,
+            "law_code": canonical_law_code if self._is_valid_discovered_law_code(canonical_law_code) else None,
+        }
+
+        text = plan_file.read_text(encoding="utf-8")
+        begin_marker = "<!-- EVO_CURRENT_BEST_BEGIN -->"
+        end_marker = "<!-- EVO_CURRENT_BEST_END -->"
+        begin_idx = text.find(begin_marker)
+        end_idx = text.find(end_marker)
+        if begin_idx < 0 or end_idx < 0 or end_idx <= begin_idx:
+            return
+
+        inner_start = begin_idx + len(begin_marker)
+        current_block = text[inner_start:end_idx]
+        existing = self._parse_current_best_block(current_block)
+        if existing and not self._is_candidate_better(candidate, existing):
+            return
+
+        meta = {
+            "round": candidate["round"],
+            "symbolic_equivalent": candidate["symbolic_equivalent"],
+            "exact_accuracy": candidate["exact_accuracy"],
+            "rmsle": candidate["rmsle"],
+            "equation": candidate["equation"],
+            "law_code": candidate["law_code"],
+        }
+        metrics_note = (
+            "symbolic_equivalent="
+            f"{self._format_metric(candidate['symbolic_equivalent'])}, "
+            "exact_accuracy="
+            f"{self._format_metric(candidate['exact_accuracy'])}, "
+            "rmsle="
+            f"{self._format_metric(candidate['rmsle'])}"
+        )
+        block_lines = [
+            "",
+            "## 当前最优",
+            f"- 轮次：{candidate['round']}",
+            f"- 方程：{candidate['equation']}",
+            "- MSE：未知",
+            f"- 更新时间：系统自动维护（{metrics_note}）",
+            f"<!-- EVO_CURRENT_BEST_META: {json.dumps(meta, ensure_ascii=False)} -->",
+        ]
+        new_inner = "\n".join(block_lines) + "\n"
+        new_text = text[:inner_start] + new_inner + text[end_idx:]
+        plan_file.write_text(new_text, encoding="utf-8")
+
+        self.logger.info(
+            "[Round %s] Updated CURRENT_BEST in plan.md via protocol metrics",
+            self.round_num,
+        )
+
+    def _parse_current_best_block(self, block_text: str) -> dict[str, Any] | None:
+        if not isinstance(block_text, str) or not block_text.strip():
+            return None
+
+        meta_match = re.search(
+            r"<!--\s*EVO_CURRENT_BEST_META:\s*(\{.*?\})\s*-->",
+            block_text,
+            flags=re.S,
+        )
+        if meta_match:
+            payload = self._safe_json_loads(meta_match.group(1))
+            if isinstance(payload, dict):
+                return self._normalize_best_candidate(payload)
+
+        round_match = re.search(r"轮次[:：]\s*(\d+)", block_text)
+        equation_match = re.search(r"方程[:：]\s*(.+)", block_text)
+        metric_match = re.search(
+            r"symbolic_equivalent\s*=\s*([^,\s]+).*?"
+            r"exact_accuracy\s*=\s*([^,\s]+).*?"
+            r"rmsle\s*=\s*([^,\s]+)",
+            block_text,
+            flags=re.S,
+        )
+
+        if not round_match and not equation_match and not metric_match:
+            return None
+
+        parsed: dict[str, Any] = {}
+        if round_match:
+            try:
+                parsed["round"] = int(round_match.group(1))
+            except Exception:
+                pass
+        if equation_match:
+            parsed["equation"] = equation_match.group(1).strip()
+        if metric_match:
+            symbolic_raw = re.sub(r"[)\]）】。，；;]+$", "", metric_match.group(1).strip().lower())
+            if symbolic_raw in {"true", "false"}:
+                parsed["symbolic_equivalent"] = symbolic_raw == "true"
+            exact_raw = re.sub(r"[)\]）】。，；;]+$", "", metric_match.group(2).strip())
+            rmsle_raw = re.sub(r"[)\]）】。，；;]+$", "", metric_match.group(3).strip())
+            parsed["exact_accuracy"] = self._safe_float(exact_raw)
+            parsed["rmsle"] = self._safe_float(rmsle_raw)
+
+        return self._normalize_best_candidate(parsed)
+
+    def _normalize_best_candidate(self, payload: dict[str, Any]) -> dict[str, Any] | None:
+        if not isinstance(payload, dict):
+            return None
+
+        round_val: int | None = None
+        try:
+            if payload.get("round") is not None:
+                round_val = int(payload.get("round"))
+        except Exception:
+            round_val = None
+
+        symbolic = payload.get("symbolic_equivalent")
+        if not isinstance(symbolic, bool):
+            symbolic = None
+
+        exact_accuracy = self._safe_float(payload.get("exact_accuracy"))
+        rmsle = self._safe_float(payload.get("rmsle"))
+        equation = str(payload.get("equation", "") or "").strip()
+        law_code = str(payload.get("law_code", "") or "").strip()
+        if law_code and not self._is_valid_discovered_law_code(law_code):
+            law_code = ""
+
+        if (
+            round_val is None
+            and not equation
+            and symbolic is None
+            and exact_accuracy is None
+            and rmsle is None
+            and not law_code
+        ):
+            return None
+
+        return {
+            "round": round_val,
+            "equation": equation or "无",
+            "symbolic_equivalent": symbolic,
+            "exact_accuracy": exact_accuracy,
+            "rmsle": rmsle,
+            "law_code": law_code or None,
+        }
+
+    def _best_quality_key(self, candidate: dict[str, Any]) -> tuple[float, float, float]:
+        symbolic = candidate.get("symbolic_equivalent")
+        if symbolic is True:
+            symbolic_score = 2.0
+        elif symbolic is False:
+            symbolic_score = 1.0
+        else:
+            symbolic_score = 0.0
+
+        exact_accuracy = candidate.get("exact_accuracy")
+        if isinstance(exact_accuracy, float) and math.isfinite(exact_accuracy):
+            exact_score = exact_accuracy
+        else:
+            exact_score = -1.0
+
+        rmsle = candidate.get("rmsle")
+        if isinstance(rmsle, float) and math.isfinite(rmsle):
+            rmsle_score = -rmsle
+        else:
+            rmsle_score = -1e12
+
+        return (symbolic_score, exact_score, rmsle_score)
+
+    def _is_candidate_better(self, candidate: dict[str, Any], existing: dict[str, Any]) -> bool:
+        c_key = self._best_quality_key(candidate)
+        e_key = self._best_quality_key(existing)
+        if c_key > e_key:
+            return True
+        if c_key < e_key:
+            return False
+
+        c_round = candidate.get("round")
+        e_round = existing.get("round")
+        if isinstance(c_round, int) and isinstance(e_round, int):
+            return c_round > e_round
+        return False
+
     def _extract_final_law_code(self, finish_message: str) -> str:
-        if not isinstance(finish_message, str) or not finish_message.strip():
+        blocks = self._extract_all_final_law_blocks(finish_message)
+        if not blocks:
             return ""
-        match = FINAL_LAW_BLOCK_RE.search(finish_message)
-        if not match:
-            return ""
-        code = match.group(1).strip()
-        return code
+        # Prefer the last valid block to avoid prose containing "<final_law>".
+        for code in reversed(blocks):
+            if self._is_valid_discovered_law_code(code):
+                return code
+        return blocks[-1]
+
+    def _extract_all_final_law_blocks(self, text: str) -> list[str]:
+        if not isinstance(text, str) or not text.strip():
+            return []
+        blocks: list[str] = []
+        matches = list(FINAL_LAW_STANDALONE_BLOCK_RE.finditer(text))
+        if not matches:
+            matches = list(FINAL_LAW_BLOCK_RE.finditer(text))
+        for match in matches:
+            code = str(match.group(1) or "").strip()
+            if code:
+                blocks.append(code)
+        return blocks
+
+    def _resolve_finish_message_with_eval_fallback(self, trajectory, finish_message: str) -> str:
+        """Force finish.final_law to an evaluated best law; fallback to global best in plan when better."""
+        source = finish_message if isinstance(finish_message, str) else ""
+        script_records = self._collect_skill_script_records(trajectory)
+        best_eval = self._extract_last_successful_evaluation(script_records)
+        fallback_law = str(best_eval.get("submitted_law") or "").strip()
+
+        plan_best = self._load_current_best_from_plan()
+        if isinstance(plan_best, dict):
+            plan_law = str(plan_best.get("law_code") or "").strip()
+            if plan_law and self._is_valid_discovered_law_code(plan_law):
+                current_key = self._best_quality_key(best_eval) if isinstance(best_eval, dict) else (-1e12, -1e12, -1e12)
+                if self._best_quality_key(plan_best) > current_key:
+                    fallback_law = plan_law
+
+        if not fallback_law:
+            return source
+
+        current_code = self._extract_final_law_code(source)
+        current_expr = self._normalize_expr_for_compare(self._extract_return_expression(current_code))
+        fallback_expr = self._normalize_expr_for_compare(self._extract_return_expression(fallback_law))
+        same_expr = bool(current_expr and fallback_expr and current_expr == fallback_expr)
+        if self._is_valid_discovered_law_code(current_code) and same_expr:
+            return source
+
+        patched = self._replace_or_append_final_law_block(source, fallback_law)
+        self.logger.warning(
+            "[Round %s] final_law replaced by evaluated/global-best law for stability.",
+            self.round_num,
+        )
+        return patched
+
+    def _load_current_best_from_plan(self) -> dict[str, Any] | None:
+        if not self.run_dir:
+            return None
+        plan_file = self.run_dir / "plan.md"
+        if not plan_file.exists():
+            return None
+        text = plan_file.read_text(encoding="utf-8")
+        begin_marker = "<!-- EVO_CURRENT_BEST_BEGIN -->"
+        end_marker = "<!-- EVO_CURRENT_BEST_END -->"
+        begin_idx = text.find(begin_marker)
+        end_idx = text.find(end_marker)
+        if begin_idx < 0 or end_idx < 0 or end_idx <= begin_idx:
+            return None
+        block = text[begin_idx + len(begin_marker) : end_idx]
+        return self._parse_current_best_block(block)
+
+    def _replace_or_append_final_law_block(self, finish_message: str, final_law_code: str) -> str:
+        block = f"<final_law>\n{final_law_code.strip()}\n</final_law>"
+        source = finish_message if isinstance(finish_message, str) else ""
+        matches = list(FINAL_LAW_STANDALONE_BLOCK_RE.finditer(source))
+        if not matches:
+            matches = list(FINAL_LAW_BLOCK_RE.finditer(source))
+        if matches:
+            last = matches[-1]
+            return source[: last.start()] + block + source[last.end() :]
+        if source.strip():
+            return source.rstrip() + "\n\n" + block
+        return block
+
+    def _is_valid_discovered_law_code(self, code: str) -> bool:
+        if not isinstance(code, str) or not code.strip():
+            return False
+        if not self._canonical_discovered_law_signature(code):
+            return False
+        try:
+            compile(code, "<final_law>", "exec")
+            return True
+        except Exception:
+            return False
 
     def _format_metric(self, value: Any) -> str:
         if value is None:
@@ -503,7 +1205,13 @@ class RoundExp(BaseExp):
     # Signal parsing
     # =========================
 
-    def _parse_signal(self, agent_message: str, trajectory, task_description: str | None = None) -> dict:
+    def _parse_signal(
+        self,
+        agent_message: str,
+        trajectory,
+        task_description: str | None = None,
+        finish_message_override: str | None = None,
+    ) -> dict:
         """Parse signal from finish tool's task_completed parameter.
 
         The Agent calls finish(message=..., task_completed="true"/"false").
@@ -520,7 +1228,11 @@ class RoundExp(BaseExp):
             return {"round": self.round_num, "satisfied": False}
 
         satisfied = task_completed == "true"
-        finish_message = self._extract_finish_message_from_trajectory(trajectory)
+        finish_message = (
+            finish_message_override
+            if isinstance(finish_message_override, str)
+            else self._extract_finish_message_from_trajectory(trajectory)
+        )
 
         signal: dict[str, Any] = {
             "round": self.round_num,
@@ -530,7 +1242,11 @@ class RoundExp(BaseExp):
         }
 
         if self._is_newtonbench_task(task_description):
-            protocol = self._evaluate_newtonbench_protocol(trajectory, finish_message)
+            protocol = self._evaluate_newtonbench_protocol(
+                trajectory,
+                finish_message,
+                task_completed=task_completed,
+            )
             signal["protocol"] = protocol
 
             if satisfied and protocol["violations"]:
@@ -539,6 +1255,9 @@ class RoundExp(BaseExp):
                     f"{protocol['violations']}"
                 )
                 signal["satisfied"] = False
+                # Keep task_completed consistent with guard decision so downstream
+                # summaries do not report "completed=true" when quality gates fail.
+                signal["task_completed"] = "false"
                 signal["protocol_guard_blocked"] = True
 
         return signal
@@ -621,17 +1340,25 @@ class RoundExp(BaseExp):
             pass
         return False
 
-    def _evaluate_newtonbench_protocol(self, trajectory, finish_message: str) -> dict[str, Any]:
+    def _evaluate_newtonbench_protocol(
+        self,
+        trajectory,
+        finish_message: str,
+        task_completed: str | None = None,
+    ) -> dict[str, Any]:
         """Validate completion protocol for NewtonBench tasks."""
         script_records = self._collect_skill_script_records(trajectory)
         script_stats = self._collect_skill_script_stats(script_records)
         run_stats = script_stats.get("run_experiment.py", {"calls": 0, "success_calls": 0})
         eval_stats = script_stats.get("evaluate_submission.py", {"calls": 0, "success_calls": 0})
+        fit_stats = script_stats.get("fit_pysr_candidates.py", {"calls": 0, "success_calls": 0})
 
         has_final_law_block = bool(FINAL_LAW_BLOCK_RE.search(finish_message or ""))
         has_discovered_law_signature = bool(DISCOVERED_LAW_SIGNATURE_RE.search(finish_message or ""))
         expected_signature = self._extract_expected_function_signature(script_records)
         final_law_signature = self._extract_final_law_signature(finish_message)
+        final_law_code = self._extract_final_law_code(finish_message)
+        final_return_expr = self._extract_return_expression(final_law_code)
         signature_match = (
             expected_signature == final_law_signature
             if expected_signature and final_law_signature
@@ -640,8 +1367,20 @@ class RoundExp(BaseExp):
         last_eval_metrics = self._extract_last_successful_evaluation(script_records)
 
         protocol_cfg = self._get_newtonbench_protocol_cfg()
+        search_mode = self._get_search_mode()
         require_signature_match = bool(protocol_cfg.get("require_signature_match", True))
         require_finite_rmsle = bool(protocol_cfg.get("require_finite_rmsle", True))
+        require_symbolic_or_exact = bool(protocol_cfg.get("require_symbolic_or_exact", False))
+        require_pysr_assisted_call = bool(
+            protocol_cfg.get(
+                "require_pysr_assisted_call",
+                search_mode == "pysr_assisted",
+            )
+        )
+        min_exact_accuracy_raw = protocol_cfg.get("min_exact_accuracy", 1.0)
+        min_exact_accuracy = self._safe_float(min_exact_accuracy_raw)
+        if min_exact_accuracy is None:
+            min_exact_accuracy = 1.0
         max_rmsle = protocol_cfg.get("max_rmsle")
         max_rmsle_value: float | None = None
         if max_rmsle is not None:
@@ -657,6 +1396,8 @@ class RoundExp(BaseExp):
             violations.append("missing_successful_run_experiment")
         if int(eval_stats.get("success_calls", 0)) < 1:
             violations.append("missing_successful_evaluate_submission")
+        if require_pysr_assisted_call and int(fit_stats.get("success_calls", 0)) < 1:
+            violations.append("missing_successful_fit_pysr_candidates")
         if not has_final_law_block:
             violations.append("missing_final_law_block")
         if not has_discovered_law_signature:
@@ -671,18 +1412,42 @@ class RoundExp(BaseExp):
 
         if int(eval_stats.get("success_calls", 0)) > 0:
             eval_rmsle = last_eval_metrics.get("rmsle")
+            eval_exact = last_eval_metrics.get("exact_accuracy")
+            symbolic_equivalent = last_eval_metrics.get("symbolic_equivalent")
+            evaluated_return_expr = str(last_eval_metrics.get("submitted_return_expr") or "").strip()
             if require_finite_rmsle and eval_rmsle is None:
                 violations.append("non_finite_rmsle")
             if max_rmsle_value is not None and (
                 eval_rmsle is None or eval_rmsle > max_rmsle_value
             ):
                 violations.append("rmsle_above_threshold")
+            # Enforce "final_law matches last evaluated" only when the agent
+            # claims completion. During ongoing rounds (task_completed=false),
+            # rollback to previous best may be valid.
+            require_final_law_last_eval = str(task_completed or "").strip().lower() == "true"
+            if require_final_law_last_eval and final_return_expr and evaluated_return_expr:
+                final_expr_norm = self._normalize_expr_for_compare(final_return_expr)
+                evaluated_expr_norm = self._normalize_expr_for_compare(evaluated_return_expr)
+                if final_expr_norm and evaluated_expr_norm and final_expr_norm != evaluated_expr_norm:
+                    violations.append("final_law_not_last_evaluated")
+            if require_symbolic_or_exact:
+                symbolic_ok = symbolic_equivalent is True
+                exact_ok = (
+                    isinstance(eval_exact, float)
+                    and math.isfinite(eval_exact)
+                    and eval_exact >= min_exact_accuracy
+                )
+                if not (symbolic_ok or exact_ok):
+                    violations.append("not_symbolic_and_exact_below_threshold")
 
         return {
+            "search_mode": search_mode,
             "run_experiment_calls": int(run_stats.get("calls", 0)),
             "run_experiment_success_calls": int(run_stats.get("success_calls", 0)),
             "evaluate_submission_calls": int(eval_stats.get("calls", 0)),
             "evaluate_submission_success_calls": int(eval_stats.get("success_calls", 0)),
+            "fit_pysr_candidates_calls": int(fit_stats.get("calls", 0)),
+            "fit_pysr_candidates_success_calls": int(fit_stats.get("success_calls", 0)),
             "has_final_law_block": has_final_law_block,
             "has_discovered_law_signature": has_discovered_law_signature,
             "expected_function_signature": expected_signature,
@@ -692,6 +1457,9 @@ class RoundExp(BaseExp):
             "quality_guard": {
                 "require_signature_match": require_signature_match,
                 "require_finite_rmsle": require_finite_rmsle,
+                "require_symbolic_or_exact": require_symbolic_or_exact,
+                "require_pysr_assisted_call": require_pysr_assisted_call,
+                "min_exact_accuracy": min_exact_accuracy,
                 "max_rmsle": max_rmsle_value,
             },
             "violations": violations,
@@ -742,14 +1510,19 @@ class RoundExp(BaseExp):
                 output = getattr(tool_response, "content", "") if tool_response is not None else ""
                 meta = getattr(tool_response, "meta", {}) if tool_response is not None else {}
                 info = meta.get("info", {}) if isinstance(meta, dict) else {}
+                output_text = output if isinstance(output, str) else str(output)
+
+                success = self._is_tool_call_success(step, tool_call_id)
+                if success and script_name == "evaluate_submission.py":
+                    success = self._is_successful_evaluation_output(output_text)
 
                 records.append(
                     {
                         "script_name": script_name,
                         "args": args,
                         "tool_call_id": tool_call_id,
-                        "success": self._is_tool_call_success(step, tool_call_id),
-                        "output": output if isinstance(output, str) else str(output),
+                        "success": success,
+                        "output": output_text,
                         "info": info if isinstance(info, dict) else {},
                     }
                 )
@@ -787,17 +1560,14 @@ class RoundExp(BaseExp):
         return expected_sig
 
     def _extract_final_law_signature(self, finish_message: str) -> str | None:
-        source = finish_message or ""
-        match = FINAL_LAW_BLOCK_RE.search(source)
-        if match:
-            source = match.group(1).strip()
-        return self._canonical_discovered_law_signature(source)
+        code = self._extract_final_law_code(finish_message or "")
+        return self._canonical_discovered_law_signature(code)
 
     def _extract_last_successful_evaluation(
         self,
         script_records: list[dict[str, Any]],
     ) -> dict[str, Any]:
-        metrics: dict[str, Any] = {}
+        best_metrics: dict[str, Any] | None = None
         for rec in script_records:
             if rec.get("script_name") != "evaluate_submission.py" or not rec.get("success"):
                 continue
@@ -809,6 +1579,11 @@ class RoundExp(BaseExp):
                 continue
 
             parsed: dict[str, Any] = {}
+            submitted_law = payload.get("submitted_law")
+            if isinstance(submitted_law, str) and submitted_law.strip():
+                parsed["submitted_law"] = submitted_law.strip()
+                parsed["submitted_return_expr"] = self._extract_return_expression(submitted_law)
+
             rmsle = self._safe_float(evaluation.get("rmsle"))
             exact_accuracy = self._safe_float(evaluation.get("exact_accuracy"))
             if rmsle is not None:
@@ -830,8 +1605,12 @@ class RoundExp(BaseExp):
             if isinstance(eval_error, str) and eval_error.strip():
                 parsed["error"] = eval_error.strip()
 
-            metrics = parsed
-        return metrics
+            if best_metrics is None:
+                best_metrics = parsed
+                continue
+            if self._best_quality_key(parsed) > self._best_quality_key(best_metrics):
+                best_metrics = parsed
+        return best_metrics or {}
 
     def _canonical_discovered_law_signature(self, text: str) -> str | None:
         if not isinstance(text, str):
@@ -886,11 +1665,27 @@ class RoundExp(BaseExp):
         except Exception:
             return None
 
+    def _get_search_mode(self) -> str:
+        """Read experiment.search_mode with safe fallback."""
+        try:
+            experiment_cfg = getattr(self.config, "experiment", {})
+            if isinstance(experiment_cfg, dict):
+                raw = str(experiment_cfg.get("search_mode", "llm_direct") or "llm_direct").strip().lower()
+                if raw in {"llm_direct", "pysr_assisted"}:
+                    return raw
+        except Exception:
+            pass
+        return "llm_direct"
+
     def _get_newtonbench_protocol_cfg(self) -> dict[str, Any]:
         defaults: dict[str, Any] = {
             "require_signature_match": True,
             "require_finite_rmsle": True,
-            "max_rmsle": None,
+            "require_symbolic_or_exact": False,
+            "require_pysr_assisted_call": False,
+            "min_exact_accuracy": 1.0,
+            # Quality gate default: avoid "task completed" with extremely poor fit.
+            "max_rmsle": 1.0,
         }
         try:
             experiment_cfg = getattr(self.config, "experiment", {})
@@ -936,3 +1731,16 @@ class RoundExp(BaseExp):
             return None
         except Exception:
             return None
+
+    def _is_successful_evaluation_output(self, output_text: str) -> bool:
+        """Judge evaluate_submission success by payload, not only exit_code."""
+        payload = self._extract_last_json_object(output_text if isinstance(output_text, str) else "")
+        if not isinstance(payload, dict):
+            return False
+        evaluation = payload.get("evaluation")
+        if not isinstance(evaluation, dict):
+            return False
+        eval_error = evaluation.get("error")
+        if isinstance(eval_error, str) and eval_error.strip():
+            return False
+        return True
