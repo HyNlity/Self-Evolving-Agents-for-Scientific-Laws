@@ -63,7 +63,7 @@ experiment:
     require_signature_match: true
     require_finite_rmsle: true
     require_pysr_assisted_call: true
-    max_rmsle: 1.0
+    max_rmsle: 0.01
 
 llm_output:
   show_in_console: true

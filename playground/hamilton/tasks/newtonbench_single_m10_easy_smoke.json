@@ -1,0 +1,15 @@
+[
+  {
+    "id": "nb_smoke_m10_be_distribution_easy_vanilla_equation_v0_n0p0",
+    "description": "profile: newtonbench\nmodule: m10_be_distribution\nsystem: vanilla_equation\ndifficulty: easy\nlaw_version: v0\nnoise: 0.0\ncode_assisted: false",
+    "meta": {
+      "profile": "newtonbench",
+      "module": "m10_be_distribution",
+      "system": "vanilla_equation",
+      "difficulty": "easy",
+      "law_version": "v0",
+      "noise": 0.0,
+      "code_assisted": false
+    }
+  }
+]

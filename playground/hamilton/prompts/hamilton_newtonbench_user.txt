@@ -7,6 +7,9 @@
 1. 读取 `plan.md` 与 `findings.md`，确认当前最优与本轮目标。
 2. 调用 `generate_task_prompt.py` 获取签名。
 3. 调用 `run_experiment.py` 获取新数据（使用 `--inputs-json`，不要用 `--num-samples`）。
+   - 只使用当前任务真实提供的控制量；如果任务里没有 `bandwidth/center_frequency`，不要在分析中引入滤波器或窄带近似。
+   - 若任务返回的是积分型 `total_power`，优先让 `bandwidth / center_frequency <= 0.05`，这样后续可用 `total_power / (bandwidth * center_frequency^3)` 近似 `n(omega, T)`。
+   - 若是 `m10 complex_system`，输入键必须写成 `temperature`, `center_frequency`, `bandwidth`，不要用 `omega` 代替 `center_frequency`。
 4. 调用 `fit_pysr_candidates.py` 生成 top-k 候选（必须包含 `--module/--system/--difficulty/--law-version/--noise`）。
    - 若尚未出现成功 fit，本轮首次 fit 必须携带 `--inputs-json` 且 >=8 组唯一输入；
    - 若报 `Not enough valid samples`，立刻补充更多 `--inputs-json` 再跑，禁止空参重复调用。
@@ -33,7 +36,7 @@
    - `message` 必含 `<final_law>def discovered_law(...)</final_law>`；
    - `<final_law>` 必须是本轮已评测候选中的最优版本（按 rmsle 优先、exact_accuracy 次优），不是最后一次尝试版本；
    - 在 `finish` 前必须再对最终 `<final_law>` 调用一次 `evaluate_submission.py`，让它成为最后一次成功评测；
-   - 仅当最后一次评测 `rmsle <= 1.0`（且有限值）时可 `task_completed="true"`；否则必须 `task_completed="false"` 并写明下一步。
+   - 仅当最后一次评测满足当前配置里的 `newtonbench_protocol.max_rmsle`（且有限值）时可 `task_completed="true"`；否则必须 `task_completed="false"` 并写明下一步。
 
 反锚定提醒：
 - `generate_task_prompt.py` 里的示例表达式不是答案；

@@ -21,6 +21,44 @@ import sys
 from pathlib import Path
 
 
+def append_hamilton_task_hint(task_prompt: str, *, module_name: str, system: str) -> str:
+    if module_name != "m10_be_distribution":
+        return task_prompt
+
+    if system == "vanilla_equation":
+        hint = """
+
+**Hamilton Working Note (direct occupation mode):**
+- This system directly measures `n(omega, T)`. There is no filter, no bandwidth, and no `total_power` proxy in this mode.
+- Only reason with the controls actually listed in this task: `omega` and `temperature`.
+- If your measured outputs stay close to `0.5`, you are likely trapped in a small-exponent asymptotic regime. Expand the `omega / T` ratio aggressively across orders of magnitude before fitting candidates.
+"""
+        return task_prompt + hint
+
+    if system == "simple_system":
+        hint = """
+
+**Hamilton Working Note (radiance proxy):**
+- This system measures `spectral_radiance` at a single probe frequency. There is no bandwidth parameter in this mode.
+- Use only the controls listed in this task: `temperature` and `probe_frequency`.
+- Because `R(omega) ∝ n(omega, T) * omega^3`, you may use `spectral_radiance / probe_frequency^3` as a working proxy for `n(omega, T)` when comparing candidate structures.
+"""
+        return task_prompt + hint
+
+    if system == "complex_system":
+        hint = """
+
+**Hamilton Working Note (narrow-band proxy):**
+- This system uses a filter + calorimeter. Only in this mode should you reason about `center_frequency`, `bandwidth`, and `total_power`.
+- Prioritize experiments with a narrow filter: `bandwidth / center_frequency <= 0.05`.
+- In that regime, you can treat `total_power / (bandwidth * center_frequency^3)` as a practical proxy for `n(omega, T)` at `omega = center_frequency`.
+- Collect multiple narrow-band samples across orders of magnitude in both `center_frequency` and `temperature` before fitting symbolic candidates.
+"""
+        return task_prompt + hint
+
+    return task_prompt
+
+
 def resolve_newtonbench_root(explicit: str | None) -> Path:
     """Resolve NewtonBench root path from arg/env/defaults."""
     candidates: list[Path] = []
@@ -90,6 +128,11 @@ def main() -> int:
         args.system,
         is_code_assisted=args.code_assisted,
         noise_level=args.noise,
+    )
+    task_prompt = append_hamilton_task_hint(
+        task_prompt,
+        module_name=args.module,
+        system=args.system,
     )
 
     payload = {

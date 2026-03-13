@@ -1,5 +1,5 @@
-# Hamilton Playground 配置（NewtonBench 单题迭代展示）
-# 用于“1 个 hard 任务 + 高轮数”场景，突出迭代优化过程
+# Hamilton Playground 配置（NewtonBench m10 easy smoke）
+# 只用于同模块快速回归，检查 PySR + 评测 + findings 闭环。
 
 llm:
   openai:
@@ -18,7 +18,7 @@ llm:
 agents:
   hamilton:
     llm: "openai"
-    max_turns: 120
+    max_turns: 100
     enable_tools: true
 
     context:
@@ -52,8 +52,7 @@ session:
 
 experiment:
   record_dir: "./playground/hamilton/records"
-  # 单题 hard 任务的迭代展示：提高轮数上限
-  max_rounds: 2
+  max_rounds: 3
   workspace_template: "playground/hamilton/workspace_newtonbench"
   seed_input_csv: false
   require_input_csv: false
@@ -63,7 +62,7 @@ experiment:
     require_signature_match: true
     require_finite_rmsle: true
     require_pysr_assisted_call: true
-    max_rmsle: 0.01
+    max_rmsle: 1.0
 
 llm_output:
   show_in_console: true

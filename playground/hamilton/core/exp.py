@@ -403,8 +403,7 @@ class RoundExp(BaseExp):
         """Normalize findings experiment table layout and ordering.
 
         Some rounds may insert free-text analysis into the table region. This
-        method rebuilds the table rows from recorded round rows, keeps them
-        sorted by round number, and moves non-table lines outside the table.
+        method rebuilds the result section from authoritative round rows only.
         """
         text = findings_file.read_text(encoding="utf-8")
         lines = text.splitlines()
@@ -420,27 +419,19 @@ class RoundExp(BaseExp):
         if header_idx < 0 or sep_idx < 0:
             return
 
-        marker_idx = -1
-        for i in range(sep_idx + 1, len(lines)):
-            if "<!-- APPEND_RESULTS -->" in lines[i]:
-                marker_idx = i
+        section_end = len(lines)
+        for i in range(header_idx + 1, len(lines)):
+            if i > header_idx and lines[i].startswith("## "):
+                section_end = i
                 break
-        if marker_idx < 0:
-            for i in range(sep_idx + 1, len(lines)):
-                if lines[i].startswith("## "):
-                    marker_idx = i
-                    break
-        if marker_idx < 0:
-            marker_idx = len(lines)
 
-        body_lines = lines[sep_idx + 1 : marker_idx]
+        body_lines = lines[sep_idx + 1 : section_end]
         rows_by_round: dict[int, str] = {}
         non_round_table_rows: list[str] = []
-        extra_lines: list[str] = []
 
         for line in body_lines:
             stripped = line.strip()
-            if not stripped:
+            if not stripped or "<!-- APPEND_RESULTS -->" in stripped:
                 continue
             if stripped.startswith("|"):
                 round_num = self._extract_round_num_from_table_row(stripped)
@@ -448,30 +439,14 @@ class RoundExp(BaseExp):
                     non_round_table_rows.append(stripped)
                 else:
                     rows_by_round[round_num] = stripped
-            else:
-                extra_lines.append(line)
 
         sorted_round_rows = [rows_by_round[k] for k in sorted(rows_by_round)]
-        rebuilt_table_lines = [
-            lines[header_idx],
-            lines[sep_idx],
-            *sorted_round_rows,
-            *non_round_table_rows,
-        ]
+        rebuilt_block = [lines[header_idx], lines[sep_idx], *sorted_round_rows, *non_round_table_rows]
+        if rebuilt_block[-1].strip():
+            rebuilt_block.append("")
+        rebuilt_block.append("<!-- APPEND_RESULTS -->")
 
-        marker_line = "<!-- APPEND_RESULTS -->"
-        marker_from_source = marker_idx < len(lines) and "<!-- APPEND_RESULTS -->" in lines[marker_idx]
-        if marker_from_source:
-            marker_line = lines[marker_idx]
-
-        after_marker_start = marker_idx + 1 if marker_from_source else marker_idx
-        tail_lines = lines[after_marker_start:]
-
-        rebuilt_block = rebuilt_table_lines + ["", marker_line]
-        if extra_lines:
-            rebuilt_block += [""] + extra_lines
-
-        new_lines = lines[:header_idx] + rebuilt_block + tail_lines
+        new_lines = lines[:header_idx] + rebuilt_block + lines[section_end:]
 
         compact_lines: list[str] = []
         prev_blank = False
@@ -490,8 +465,8 @@ class RoundExp(BaseExp):
         lines = text.splitlines()
 
         lines = self._normalize_key_findings_section(lines)
+        lines = self._normalize_candidate_analysis_section(lines)
         lines = self._normalize_worth_trying_next_section(lines)
-        lines = self._keep_latest_candidate_analysis_section(lines)
 
         compact_lines: list[str] = []
         prev_blank = False
@@ -507,7 +482,6 @@ class RoundExp(BaseExp):
     def _normalize_key_findings_section(self, lines: list[str]) -> list[str]:
         """Render key findings as per-round physical insights."""
         header_idx = -1
-        marker_idx = -1
         for i, line in enumerate(lines):
             if line.strip() == "## 关键洞察":
                 header_idx = i
@@ -515,14 +489,13 @@ class RoundExp(BaseExp):
         if header_idx < 0:
             return lines
 
+        section_end = len(lines)
         for i in range(header_idx + 1, len(lines)):
-            if "<!-- APPEND_FINDINGS -->" in lines[i]:
-                marker_idx = i
+            if lines[i].startswith("## "):
+                section_end = i
                 break
-        if marker_idx < 0 or marker_idx <= header_idx:
-            return lines
 
-        body = lines[header_idx + 1 : marker_idx]
+        body = lines[header_idx + 1 : section_end]
         placeholder = "（经验证的数据观察和物理关系）"
         for line in body:
             stripped = line.strip()
@@ -538,14 +511,13 @@ class RoundExp(BaseExp):
             for insight in self._build_physical_insight_for_round(summary):
                 rebuilt_body.append(f"- {insight}")
             rebuilt_body.append("")
+        rebuilt_body.append("<!-- APPEND_FINDINGS -->")
 
-        return lines[: header_idx + 1] + rebuilt_body + lines[marker_idx:]
+        return lines[: header_idx + 1] + rebuilt_body + lines[section_end:]
 
     def _normalize_worth_trying_next_section(self, lines: list[str]) -> list[str]:
         """Render next-step section as per-round structured actions."""
         header_idx = -1
-        marker_idx = -1
-        marker_line = "<!-- APPEND_NEXT -->"
         for i, line in enumerate(lines):
             if line.strip() == "## Worth Trying Next":
                 header_idx = i
@@ -553,21 +525,11 @@ class RoundExp(BaseExp):
         if header_idx < 0:
             return lines
 
+        section_end = len(lines)
         for i in range(header_idx + 1, len(lines)):
-            if "<!-- APPEND_NEXT -->" in lines[i]:
-                marker_idx = i
-                marker_line = lines[i]
+            if lines[i].startswith("## "):
+                section_end = i
                 break
-        marker_found = marker_idx >= 0
-        if marker_idx < 0:
-            for i in range(header_idx + 1, len(lines)):
-                if lines[i].startswith("## "):
-                    marker_idx = i
-                    break
-            if marker_idx < 0:
-                marker_idx = len(lines)
-        if marker_idx <= header_idx:
-            return lines
 
         round_summaries = self._extract_round_summaries_from_experiment_table(lines)
         best_rmsle: float | None = None
@@ -583,10 +545,11 @@ class RoundExp(BaseExp):
             for item in self._build_next_actions_for_round(summary, best_rmsle):
                 rebuilt_body.append(f"- {item}")
             rebuilt_body.append("")
+        rebuilt_body.append("<!-- APPEND_NEXT -->")
 
         prefix = lines[: header_idx + 1]
-        suffix = lines[marker_idx + 1 :] if marker_found else lines[marker_idx:]
-        return prefix + rebuilt_body + [marker_line] + suffix
+        suffix = lines[section_end:]
+        return prefix + rebuilt_body + suffix
 
     def _extract_round_summaries_from_experiment_table(
         self,
@@ -637,6 +600,58 @@ class RoundExp(BaseExp):
             }
         return summaries
 
+    def _extract_equation_features(self, equation: str) -> dict[str, Any]:
+        raw = equation if isinstance(equation, str) else ""
+        expr = re.sub(r"\s+", "", raw.lower())
+        numeric_literals = [
+            abs(float(match.group(0)))
+            for match in re.finditer(r"[-+]?(?:\d+\.\d*|\d*\.\d+|\d+)(?:e[-+]?\d+)?", expr)
+            if self._safe_float(match.group(0)) is not None
+        ]
+        positive_literals = [x for x in numeric_literals if x > 0]
+        has_mixed_scales = False
+        if positive_literals:
+            has_mixed_scales = max(positive_literals) / min(positive_literals) > 1e6
+
+        ratio_like = (
+            "omega/t" in expr
+            or "omega)/(t" in expr
+            or ("omega**1.5" in expr and "t**3" in expr)
+            or ("omega**(3/2)" in expr and "t**3" in expr)
+            or ("sqrt(omega)" in expr and "/t" in expr)
+        )
+        direct_sum = (
+            "t+omega" in expr
+            or "omega+t" in expr
+            or "sqrt(t+omega)" in expr
+            or "sqrt(omega+t)" in expr
+        )
+        denominator_sensitive = (
+            "/(t-" in expr
+            or "/(omega-" in expr
+            or ")/(t-" in expr
+            or ")/(omega-" in expr
+        )
+        additive_bias = bool(
+            re.search(
+                r"(?:\+|-)(?:\d+\.\d*|\d*\.\d+|\d+)(?:e[-+]?\d+)?\)?$",
+                expr,
+            )
+        )
+
+        return {
+            "expr": expr,
+            "has_exp": "exp(" in expr,
+            "has_log": "log(" in expr,
+            "has_sqrt": "sqrt(" in expr,
+            "has_poly": "**" in expr,
+            "has_ratio_like": ratio_like,
+            "has_direct_sum": direct_sum,
+            "has_denominator_sensitive": denominator_sensitive,
+            "has_additive_bias": additive_bias,
+            "has_mixed_scales": has_mixed_scales,
+        }
+
     def _parse_metric_value(self, text: str, metric_name: str) -> float | None:
         if not isinstance(text, str):
             return None
@@ -648,32 +663,72 @@ class RoundExp(BaseExp):
 
     def _build_physical_insight_for_round(self, summary: dict[str, Any]) -> list[str]:
         equation = str(summary.get("equation", "") or "")
-        expr = equation.lower()
-        has_exp = "exp(" in expr
-        has_ratio = ("omega/t" in expr) or ("omega / t" in expr)
-        has_log = "log(" in expr
-        has_sqrt = "sqrt(" in expr
-        has_poly = "**" in expr
-        be_like = has_exp and has_ratio
+        features = self._extract_equation_features(equation)
 
-        if be_like:
-            mechanism = "机制判读：方程包含 `exp(omega/T)` 型核心结构，反映了热激发下占据数随能量比上升而衰减的统计机制。"
-        elif has_exp:
-            mechanism = "机制判读：出现指数项，说明模型在尝试表达热激发机制，但无量纲比值结构（omega/T）仍不完整。"
+        if features["has_log"] and features["has_ratio_like"]:
+            mechanism = (
+                "机制判读：方程出现 `log(频率/温度尺度组合)`，"
+                "更像是在描述乘法尺度被压缩后的响应，而不是直接的热指数抑制。"
+            )
+        elif features["has_exp"] and features["has_ratio_like"]:
+            mechanism = (
+                "机制判读：方程包含以频率/温度尺度组合作为输入的指数项，"
+                "属于典型的热激发抑制家族。"
+            )
+        elif features["has_sqrt"] and features["has_direct_sum"]:
+            mechanism = (
+                "机制判读：出现 `sqrt(T+omega)` 一类直接混合项，"
+                "说明模型在用代数 surrogate 吸收窄带 proxy 的局部曲率。"
+            )
+        elif features["has_sqrt"] and features["has_denominator_sensitive"]:
+            mechanism = (
+                "机制判读：当前是“根号 + 敏感分母”的有理式，"
+                "更像数值近似器而非稳定的机制方程。"
+            )
         else:
-            mechanism = "机制判读：当前主要是经验拟合项（多项式/对数/根号），更偏插值形态，物理机制解释较弱。"
+            mechanism = (
+                "机制判读：当前主要依赖代数补丁项（根号/多项式/有理式），"
+                "物理机制仍弱于经验拟合特征。"
+            )
 
-        if has_ratio:
-            scene = "情境关联：任务为黑体腔+带通滤波+量热测功率，`omega/T` 的无量纲耦合与该物理情境一致。"
+        if features["has_ratio_like"]:
+            scene = (
+                "情境关联：式子至少显式耦合了频率与温度的尺度比/尺度组合，"
+                "这比单独堆叠 `omega`、`T` 更接近该类热辐射任务的物理结构。"
+            )
+        elif features["has_direct_sum"]:
+            scene = (
+                "情境关联：当前直接把 `T` 与 `omega` 相加后再开方，"
+                "缺少明确的无量纲化，物理上更像 proxy 插值而非本征规律。"
+            )
         else:
-            scene = "情境关联：当前形式未显式体现 `omega/T` 主导关系，与黑体辐射情境的关联仍偏弱。"
+            scene = (
+                "情境关联：当前形式未稳定体现无量纲主变量，"
+                "与黑体腔 + 滤波 + 量热情境的核心尺度关系仍偏弱。"
+            )
 
-        if be_like and not (has_log or has_sqrt or has_poly):
-            literature = "文献对照：与经典 Bose-Einstein/Planck 家族同型；主要差异在常数标定，尚未出现明显“新项”。"
-        elif has_log or has_sqrt or has_poly:
-            literature = "文献对照：存在 log/sqrt/高阶多项式等修正项，经典文献中通常不是主导项，需额外证据支持其物理真实性。"
+        if features["has_log"]:
+            literature = (
+                "文献对照：它与常见的 `exp` 型 Planck/Bose-Einstein 基线不同；"
+                "这种差异本身不等于错误，也不等于新规律，需要看简化后是否仍保持低误差。"
+            )
+        elif features["has_exp"] and features["has_ratio_like"] and not (
+            features["has_sqrt"] or features["has_poly"]
+        ):
+            literature = (
+                "文献对照：该式更接近常见热占据数家族；"
+                "接下来应检验是否还能用更少项保持同等误差。"
+            )
+        elif features["has_sqrt"] or features["has_poly"]:
+            literature = (
+                "文献对照：存在 `sqrt`/高阶幂/有理补丁项，"
+                "更像经验 surrogate；只有在消融后仍保持低误差，才可讨论其必要性。"
+            )
         else:
-            literature = "文献对照：与经典 `1/(exp(c*omega/T)-1)` 仍有结构差距，暂不支持“新规律”结论。"
+            literature = (
+                "文献对照：当前结构既未贴近经典热占据数基线，也未形成清晰的新机制证据，"
+                "需要继续压缩到更简洁的主导变量形式。"
+            )
 
         return [mechanism, scene, literature]
 
@@ -683,28 +738,27 @@ class RoundExp(BaseExp):
         best_rmsle: float | None,
     ) -> list[str]:
         equation = str(summary.get("equation", "") or "")
-        expr = equation.lower()
+        features = self._extract_equation_features(equation)
         rmsle = summary.get("rmsle")
-        has_exp = "exp(" in expr
-        has_ratio = ("omega/t" in expr) or ("omega / t" in expr)
-        has_log = "log(" in expr
-        has_sqrt = "sqrt(" in expr
-        has_poly = "**" in expr
 
         if isinstance(rmsle, float) and math.isfinite(rmsle):
             if rmsle > 1.0:
                 target = "目标：先把误差降到 `RMSLE < 1`，再讨论符号等价。"
+            elif rmsle > 0.01:
+                target = "目标：当前仅达到数值可用，继续把误差压到 `RMSLE <= 1e-2` 再讨论收敛。"
             else:
                 target = "目标：在保持低 RMSLE 的同时提升符号一致性与物理可解释性。"
         else:
             target = "目标：先获得稳定可评测结果（避免 NaN / overflow）。"
 
-        if not has_exp:
-            action = "动作：切换到 `1/(exp(c*omega/T)-k)` 结构族，避免继续纯多项式/对数经验拟合。"
-        elif has_exp and not has_ratio:
+        if features["has_log"] and not features["has_ratio_like"]:
+            action = "动作：保留 `log` 家族作为对照，但先改写成单一无量纲主变量后再比较 `log` 与 `exp` 基线。"
+        elif not features["has_exp"] and not features["has_log"]:
+            action = "动作：先把当前 surrogate 压缩成 `f(omega**a / T**b)` 单变量结构，再比较 `exp` / `log` / 代数基线。"
+        elif features["has_exp"] and not features["has_ratio_like"]:
             action = "动作：重写为 `omega/T` 无量纲输入，并重新做常数扫描。"
-        elif has_log or has_sqrt or has_poly:
-            action = "动作：做消融（先去 log/sqrt/高阶项），保留最小可解释结构后再评测。"
+        elif features["has_log"] or features["has_sqrt"] or features["has_poly"]:
+            action = "动作：做消融（先去 log/sqrt/高阶项），并与更简洁的 `exp/log` 主变量版本做并行比较。"
         else:
             action = "动作：固定当前结构族，仅微调常数并补充极端温频样本验证稳健性。"
 
@@ -717,6 +771,108 @@ class RoundExp(BaseExp):
             criterion = "验收：`evaluate_submission` 成功，且 RMSLE 持续下降。"
 
         return [target, action, criterion]
+
+    def _normalize_candidate_analysis_section(self, lines: list[str]) -> list[str]:
+        best_candidate = self._load_current_best_from_plan()
+        if not isinstance(best_candidate, dict):
+            return self._keep_latest_candidate_analysis_section(lines)
+
+        round_num = best_candidate.get("round")
+        equation = str(best_candidate.get("equation", "") or "").strip()
+        if not isinstance(round_num, int) or not equation:
+            return self._keep_latest_candidate_analysis_section(lines)
+
+        round_summaries = self._extract_round_summaries_from_experiment_table(lines)
+        summary = dict(round_summaries.get(round_num, {}))
+        summary.setdefault("round", round_num)
+        summary.setdefault("equation", equation)
+        summary.setdefault("rmsle", best_candidate.get("rmsle"))
+        summary.setdefault("exact", best_candidate.get("exact_accuracy"))
+        summary.setdefault(
+            "conclusion",
+            (
+                "symbolic="
+                f"{self._format_metric(best_candidate.get('symbolic_equivalent'))}; "
+                "source=current_best"
+            ),
+        )
+
+        pattern = re.compile(r"^##\s*候选方程解析[（(]\s*Round\s*(\d+)\s*[)）]\s*$")
+        ranges_to_remove: list[tuple[int, int]] = []
+        for i, line in enumerate(lines):
+            if not pattern.match(line.strip()):
+                continue
+            end = len(lines)
+            for j in range(i + 1, len(lines)):
+                if lines[j].startswith("## "):
+                    end = j
+                    break
+            ranges_to_remove.append((i, end))
+
+        for start, end in sorted(ranges_to_remove, reverse=True):
+            del lines[start:end]
+
+        insert_idx = len(lines)
+        for i, line in enumerate(lines):
+            if line.strip() in {"## Worth Trying Next", "## 最优方程演化"}:
+                insert_idx = i
+                break
+
+        block = self._build_candidate_analysis_block(summary)
+        prefix = lines[:insert_idx]
+        suffix = lines[insert_idx:]
+        if prefix and prefix[-1].strip():
+            prefix.append("")
+        return prefix + block + [""] + suffix
+
+    def _build_candidate_analysis_block(self, summary: dict[str, Any]) -> list[str]:
+        round_num = summary.get("round")
+        equation = self._compact_text(str(summary.get("equation", "") or ""), limit=180)
+        features = self._extract_equation_features(equation)
+        rmsle = self._format_metric(summary.get("rmsle"))
+        exact = self._format_metric(summary.get("exact"))
+        structure_note = self._build_physical_insight_for_round(summary)
+
+        if features["has_denominator_sensitive"]:
+            sensitivity_1 = "分母里存在减法敏感项，靠近零时会放大误差，常数微调可能显著改变整体曲线。"
+        elif features["has_additive_bias"]:
+            sensitivity_1 = "式子包含常数偏置，低值区的拟合会强依赖这个 baseline，需警惕它只是补偿项。"
+        else:
+            sensitivity_1 = "当前系数主要承担尺度伸缩作用，应优先检查它们是否只是把不同量纲硬拼到一起。"
+
+        if features["has_mixed_scales"]:
+            sensitivity_2 = "系数跨多个数量级，说明表达式可能存在补丁式配平；轻微改动就可能破坏稳定性。"
+        else:
+            sensitivity_2 = "系数数量级相对集中，下一步应尝试减少自由常数并检查误差是否显著上升。"
+
+        ablations: list[str] = []
+        if features["has_additive_bias"]:
+            ablations.append("去掉常数偏置项，检查它是否只是吸收了 proxy 的平均值。")
+        if features["has_sqrt"]:
+            ablations.append("去掉 `sqrt` 项或把它改写为幂律 `omega**a`，判断根号是否必要。")
+        if features["has_log"]:
+            ablations.append("把 `log` 项替换成同主变量上的 `exp` 或纯幂律，比较误差是否显著恶化。")
+        if features["has_direct_sum"]:
+            ablations.append("把 `T+omega` 一类直接相加项改成无量纲组合，排查是否只是量纲不一致的插值补丁。")
+        if not ablations:
+            ablations.append("围绕主变量做最小化消融，删除一个主导项后重新评测，确认哪些项是真正必要的。")
+
+        return [
+            f"## 候选方程解析（Round {round_num}）",
+            "### 1) 方程与物理解释",
+            f"- 当前最优返回式：`{equation}`",
+            f"- 评测概览：RMSLE={rmsle}，Exact={exact}。",
+            f"- 结构摘要：{structure_note[0]}",
+            "### 2) 参数/系数敏感性",
+            f"- {sensitivity_1}",
+            f"- {sensitivity_2}",
+            "### 3) 物理洞察",
+            f"- {structure_note[1]}",
+            f"- {structure_note[2]}",
+            "### 4) 消融分析",
+            *[f"- {item}" for item in ablations],
+            "- 只有在删去对应项后误差显著变差，才能把该项视为机制成分而非数值补丁。",
+        ]
 
     def _dedupe_lines_before_marker(
         self,

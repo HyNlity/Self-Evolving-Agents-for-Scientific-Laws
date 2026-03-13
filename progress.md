@@ -218,6 +218,74 @@
     - `evaluate_submission` 成功执行但 `rmsle≈20.64`；
     - Agent 最终 `finish(task_completed="false")`；
     - `signal.protocol.violations` 包含 `rmsle_above_threshold`。
+
+## Session: 2026-03-13
+
+### Phase 11.4: P0 协议收紧（hard 合法采样 + findings 稳定化）
+- **Status:** in_progress
+- **Started:** 2026-03-13
+- Actions taken:
+  - 收紧 `run_experiment.py`：`m10_be_distribution/complex_system` 现在必须显式传 `temperature/center_frequency/bandwidth`，禁止再用 `omega` 混过 experiment API。
+  - 收紧 `fit_pysr_candidates.py`：complex-system 采样缓存也改为同样的官方字段校验，避免脏样本继续进入 PySR。
+  - 将 hard 单任务配置的 `newtonbench_protocol.max_rmsle` 从 `1.0` 降到 `0.01`，防止 `RMSLE≈0.04` 时 1 轮直接停机。
+  - 更新 Hamilton NewtonBench prompts 与 `workspace_newtonbench/task.md`，同步 hard 任务质量门槛与官方 experiment 键要求。
+  - 重写 `findings.md` 归位逻辑：`关键洞察 / 实验结果 / Worth Trying Next` 现在按 section 重建，只保留一个 `APPEND_FINDINGS/RESULTS/NEXT` marker。
+  - 增加 `候选方程解析` 的系统重建逻辑：从 `plan.md` 的 `CURRENT_BEST` 读取当前最优 round / equation / metrics，避免解析块停留在旧轮次。
+  - 放宽对结构族的先验偏置：`关键洞察` 与 `Worth Trying Next` 不再默认把非 `exp` 结构判错，而是按 `exp/log/代数 surrogate` 三类比较。
+  - 做离线回归：
+    - `py_compile` 通过；
+    - 复制一份已损坏 hard findings 到临时目录后执行归位，成功收敛为单一 marker；
+    - `run_experiment.py` 回归验证：错误 `omega` 输入被拒绝，合法 `center_frequency/bandwidth` 输入可执行。
+    - 复制最新 hard findings 到临时目录后执行归位，`候选方程解析` 已能自动对齐到 Round 20。
+- Files created/modified:
+  - `evomaster/skills/newtonbench/scripts/run_experiment.py` (updated)
+  - `evomaster/skills/newtonbench/scripts/fit_pysr_candidates.py` (updated)
+  - `playground/hamilton/core/exp.py` (updated)
+  - `configs/hamilton/newtonbench_single_hard_iter.yaml` (updated)
+  - `configs/hamilton/newtonbench_single_hard_iter_20rounds.yaml` (updated)
+  - `configs/hamilton/newtonbench_single_hard_iter_2rounds.yaml` (updated)
+  - `playground/hamilton/prompts/hamilton_newtonbench_system.txt` (updated)
+  - `playground/hamilton/prompts/hamilton_newtonbench_user.txt` (updated)
+  - `playground/hamilton/workspace_newtonbench/task.md` (updated)
+  - `task_plan.md` (updated)
+  - `findings.md` (updated)
+  - `progress.md` (updated)
+
+## Session: 2026-03-13
+
+### Phase 11.3: P0 目标对齐（m10 complex_system）
+- **Status:** in_progress
+- **Started:** 2026-03-13
+- Actions taken:
+  - 复盘 `m10_be_distribution/complex_system` 数据链路，确认实验脚本返回的是积分量 `total_power`，而评测对比的是 `discovered_law(omega, T)` 对应的 occupation number。
+  - 复盘 `fit_pysr_candidates.py`，确认其默认按出现频率自动选择目标字段，因此此前实际在用 `omega,T -> total_power` 做 PySR 拟合，目标错位。
+  - 在 `fit_pysr_candidates.py` 中新增 `m10 complex_system` 专用窄带 proxy：
+    - 仅当 `bandwidth / center_frequency <= 0.05` 时，生成 `derived.occupation_proxy_narrowband`；
+    - proxy 公式为 `total_power / (bandwidth * center_frequency^3)`；
+    - 默认优先拟合该 proxy，并在样本不足时输出明确提示。
+  - 在 `generate_task_prompt.py` 追加 Hamilton 专用工作提示，要求 `m10 complex_system` 优先采窄带样本并跨数量级覆盖 `omega/T`。
+  - 在 Hamilton NewtonBench system/user prompt 与 `workspace_newtonbench/task.md` 中同步加入窄带采样策略说明。
+  - 复核 `third_party/NewtonBench/modules/m10_be_distribution/laws.py`：
+    - `easy/v0` 真式为 `1 / (exp(C * omega / T) + 1)`；
+    - 当前 smoke 采样区间会把该真式压缩到接近 `0.5` 的小指数极限，因此“常数近似”属于局部可解释现象，不应直接解读为流程失效。
+  - 据此继续修 prompt 污染：
+    - `generate_task_prompt.py` 改为对 `vanilla/simple/complex` 三种 system 分别追加不同的 Hamilton note；
+    - 明确禁止在 `vanilla/simple` 模式下引入 `bandwidth/filter/total_power` 叙述。
+  - 新增 easy smoke 回归入口：
+    - `playground/hamilton/tasks/newtonbench_single_m10_easy_smoke.json`
+    - `configs/hamilton/newtonbench_single_m10_easy_smoke.yaml`
+  - 完成本地静态/轻量自检：
+    - `py_compile` 通过；
+    - `generate_task_prompt.py` 已正确输出窄带 proxy 提示；
+    - proxy 逻辑自检通过，只有窄带样本会被纳入目标构造。
+- Files created/modified:
+  - `evomaster/skills/newtonbench/scripts/fit_pysr_candidates.py` (updated)
+  - `evomaster/skills/newtonbench/scripts/generate_task_prompt.py` (updated)
+  - `playground/hamilton/prompts/hamilton_newtonbench_system.txt` (updated)
+  - `playground/hamilton/prompts/hamilton_newtonbench_user.txt` (updated)
+  - `playground/hamilton/workspace_newtonbench/task.md` (updated)
+  - `playground/hamilton/tasks/newtonbench_single_m10_easy_smoke.json` (created)
+  - `configs/hamilton/newtonbench_single_m10_easy_smoke.yaml` (created)
   - 修复 `scripts/newtonbench/summarize_hamilton_run.py`：
     - `final_law` 改为只从真实 finish 消息提取，避免误命中 prompt 模板；
     - 新增 `task_completed_true/task_completed_false` 汇总；

@@ -27,7 +27,8 @@ def discovered_law(...):
 </final_law>
 ```
 5. `runtime.search_mode=pysr_assisted` 时，至少一次成功 `fit_pysr_candidates.py`（否则不允许完成）。
-6. 质量门槛：仅当最终 `evaluate_submission.py` 返回 `rmsle <= 1.0`（且有限值）时，才允许 `task_completed="true"`。
+6. 质量门槛：仅当最终 `evaluate_submission.py` 返回的指标满足当前配置里的 `newtonbench_protocol.max_rmsle`（且为有限值）时，才允许 `task_completed="true"`。
+   - 对 hard `m10 complex_system`，不要把 `RMSLE≈1e-1 ~ 1e-2` 当作完成；当前默认门槛更接近 `1e-2`。
 
 参数模板（避免错参）：
 - `run_experiment.py` / `fit_pysr_candidates.py`：
@@ -40,10 +41,16 @@ def discovered_law(...):
 ## 采样约束（必须）
 
 1. `run_experiment.py` 只能用 `--inputs-json` / `--inputs-file` 提供样本，不要用 `--num-samples`。
-2. 在 `pysr_assisted` 模式下，若尚未出现成功的 `fit_pysr_candidates.py`：
+2. 只讨论当前任务提示里真实存在的实验系统与控制量：
+   - 若当前任务只有 `omega/temperature`，不要提 `bandwidth`、`center_frequency`、`total_power`、窄带近似。
+   - 若当前任务只有 `temperature/probe_frequency`，不要提 `bandwidth` 或滤波器。
+3. 在 `pysr_assisted` 模式下，若尚未出现成功的 `fit_pysr_candidates.py`：
    - 首次 `fit_pysr_candidates.py` 必须携带 `--inputs-json`，且至少 8 组互不重复样本；
    - 样本需跨数量级覆盖（不要全部在同一尺度）。
-3. 若出现 `Not enough valid samples for PySR fitting`，本轮必须立即补充更多 `--inputs-json` 再次调用 `fit_pysr_candidates.py`，不要空参重复调用。
+   - 若观测量是积分型 `total_power`（如带通滤波+量热计任务），优先收集窄带样本：`bandwidth / center_frequency <= 0.05`。
+   - 对 `m10 complex_system`，实验输入必须显式使用官方字段 `temperature`, `center_frequency`, `bandwidth`；不要把 `omega` 直接当成 experiment API 参数。
+   - 在上述窄带条件下，可把 `total_power / (bandwidth * center_frequency^3)` 视作 `n(omega, T)` 的工作 proxy，用于后续 PySR 拟合与候选筛选。
+4. 若出现 `Not enough valid samples for PySR fitting`，本轮必须立即补充更多 `--inputs-json` 再次调用 `fit_pysr_candidates.py`，不要空参重复调用。
 
 ## 工具调用约束（必须）
 
@@ -110,7 +117,7 @@ def discovered_law(...):
 4. `pysr_assisted` 下，先评测最近一次 `fit_pysr_candidates.py` 的 top 候选；但最终 `<final_law>` 必须按已评测指标选全局最优（不限制来源）。
 5. 若你尝试手写候选，必须先成功 `evaluate_submission.py`，并且只有在其指标优于当前最优候选时才可保留。
 6. 调用 `finish(...)` 前，必须用 `evaluate_submission.py` 对最终选定的 `<final_law>` 再评测一次，确保它就是“最后一次成功评测”的候选。
-7. 若最后一次评测 `rmsle > 1.0` 或非有限值，必须 `task_completed="false"`。
+7. 若最后一次评测未满足当前配置里的质量门槛，或为非有限值，必须 `task_completed="false"`。
 
 ## 收敛控制（必须）
 

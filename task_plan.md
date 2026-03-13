@@ -4,7 +4,7 @@
 在不分叉 Hamilton playground 的前提下，用现有“单 Agent + prompt + skill”架构完成 NewtonBench 验证（先 pilot，再 324 tasks），并输出可量化的架构改进方案。
 
 ## Current Phase
-Phase 8（Pilot Benchmark：easy36 已跑通，进入失败模式驱动改造）
+Phase 11.4（P0 协议收紧：hard 合法采样、完成门槛收紧、findings 结构重建）
 
 ## Success Criteria
 1. 单任务链路稳定：Hamilton 可在 NewtonBench profile 下完成实验与提交（已达成）。
@@ -169,3 +169,24 @@ Phase 8（Pilot Benchmark：easy36 已跑通，进入失败模式驱动改造）
 - [x] 默认搜索模式切回 `llm_direct`，PySR 作为可选能力保留。
 - [x] 简化上一轮反馈注入与 NewtonBench prompts，减少硬约束措辞。
 - [x] 重写 NewtonBench task 模板，保留 APPEND 标记与最小记录规范。
+
+### Phase 11.3: P0 目标对齐（m10 complex_system）— `in_progress`
+- [x] 识别 hard 失败主因：`fit_pysr_candidates.py` 直接拟合 `total_power`，而评测目标是 `n(omega, T)`。
+- [x] 在 skill 接入层增加窄带 occupation proxy：
+  `total_power / (bandwidth * center_frequency^3)`。
+- [x] 仅对 `bandwidth / center_frequency <= 0.05` 的样本生成 proxy，避免宽带积分污染 PySR 目标。
+- [x] 在 `generate_task_prompt.py` 与 Hamilton NewtonBench prompts 中加入窄带采样提示。
+- [x] 修正 system 级 prompt 污染：`vanilla/simple` 禁止借用 `complex_system` 的滤波器/窄带话术。
+- [x] 复核 `m10 easy v0` 真式，确认 smoke 里接近 `0.5` 属于局部小指数极限而非流程故障。
+- [x] 新增同模块 easy smoke 入口：`m10_be_distribution / vanilla_equation / easy / v0`。
+- [ ] 运行 easy smoke 与 hard 对照，确认“主流程正常”与“复杂逆问题困难”已经分离。
+
+### Phase 11.4: P0 协议收紧（hard 合法采样 + findings 稳定化）— `in_progress`
+- [x] `run_experiment.py` 对 `m10 complex_system` 强制使用官方 experiment 字段：`temperature/center_frequency/bandwidth`。
+- [x] `fit_pysr_candidates.py` 对 `m10 complex_system` 同步收紧采样键，拒绝用 `omega` 伪装 experiment 输入。
+- [x] hard 配置质量门槛从 `max_rmsle=1.0` 收紧到 `0.01`（10/20/2 rounds 配置同步）。
+- [x] NewtonBench prompts / workspace task 同步强调 hard 不可在 `RMSLE≈1e-1~1e-2` 提前完成。
+- [x] `findings.md` 的 `关键洞察 / 实验结果 / Worth Trying Next` 改为 section 重建，清理重复 APPEND marker。
+- [x] `候选方程解析（Round N）` 改为从 `plan.md` 的 `CURRENT_BEST` 重建，避免停留在旧轮次。
+- [x] 关键洞察 / 下一步建议去除“默认 exp 正确、非 exp 错误”的偏置，改为比较 `exp/log/代数 surrogate` 三类主变量结构。
+- [ ] 重新跑 hard，确认不再 1 轮停机，且 findings section 不再变形。

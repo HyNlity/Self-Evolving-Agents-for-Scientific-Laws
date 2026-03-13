@@ -203,6 +203,75 @@
 - H2：在 round 结束自动执行一次 `evaluate_submission` 并回填指标，可降低高 RMSLE 但误判完成的比例。
 - H3：将实验输入/输出、最终方程、评测结果结构化落盘后，可显著提升失败模式定位效率，减少 prompt 盲改。
 
+## 2026-03-13 P0 收紧结论
+
+### 问题确认
+- 最新 hard run 已证明 proxy 修正有效，但还存在三个新的流程性问题：
+  - `m10 complex_system` 首轮 `run_experiment` 仍可用 `omega` 之类非官方键混过，导致采样不干净。
+  - hard 完成门槛过宽（`max_rmsle=1.0`），`RMSLE≈0.04` 时会 1 轮提前停机，几乎看不到迭代。
+  - `findings.md` 的 APPEND 区块会被 Agent 插乱，出现重复 `APPEND_FINDINGS/APPEND_NEXT` 和错位内容。
+
+### 本轮改动
+- `run_experiment.py` 与 `fit_pysr_candidates.py` 对 `m10_be_distribution/complex_system` 统一强制：
+  - 必须显式提供 `temperature/center_frequency/bandwidth`
+  - 禁止用 `omega` 代替 `center_frequency`
+  - 三个字段都必须为正数
+- hard 配置 `max_rmsle` 收紧到 `0.01`，并同步到 10/20/2 轮配置。
+- prompts 与 workspace task 明确：
+  - hard `m10 complex_system` 不要把 `RMSLE≈1e-1~1e-2` 当完成；
+  - experiment 输入必须使用官方字段。
+- `playground/hamilton/core/exp.py` 的 findings 归位改为“重建 section”，不再信任 Agent 乱插的局部文本。
+
+### 已验证
+- 复制一份已损坏的 hard `findings.md` 到临时目录后执行归位，输出只剩 1 个 `APPEND_FINDINGS`、1 个 `APPEND_RESULTS`、1 个 `APPEND_NEXT`。
+- `run_experiment.py` 回归：
+  - 非法输入：`omega + temperature + bandwidth` 会被拒绝；
+  - 合法输入：`center_frequency + temperature + bandwidth` 可正常返回 `total_power`。
+
+### 当前判断
+- 这轮改动解决的是“流程提纯”，不是“hidden law 已找回”。
+- 下一步真正需要看的，是新的 hard run 是否：
+  - 不再 1 轮提前结束；
+  - findings 结构保持稳定；
+  - 在更严格门槛下继续迭代而不是卡死。
+
+## 2026-03-13 补充：findings 语义修正
+
+### 为什么“关键洞察”之前高度相似
+- 旧版 `exp.py` 的 `关键洞察` 生成逻辑只按很粗的字符串特征分桶：
+  - 是否有 `exp`
+  - 是否有 `log`
+  - 是否有 `sqrt`
+  - 是否显式写了 `omega/T`
+- 这会导致很多不同轮次的经验式都落进同一模板，输出高度相似，即使具体方程已经从 `log`、`sqrt`、有理式之间切换。
+
+### 本轮修正
+- `关键洞察` 改为更细的结构判读：
+  - 区分 `log` 主变量、`exp` 主变量、`sqrt(T+omega)` 这类直接混合项、敏感分母、有无量纲主变量等。
+- `Worth Trying Next` 去掉“非 `exp` 即错误”的偏置，改为建议比较：
+  - `exp` 基线
+  - `log` 基线
+  - 代数 surrogate
+- `候选方程解析（Round N）` 改为从 `plan.md` 当前最优重建，不再停留在旧 round。
+
+### 关于 “与经典 1/(exp(c*omega/T)-1) 仍有结构差距” 的修正解释
+- 这句话以前写得过头了，容易让人误解成“benchmark 正确答案一定应接近 exp 家族”。
+- 对 `m10_be_distribution/hard/v2` 来说，这个推断并不成立：
+  - `laws.py` 里的 hidden law 确实是 `log` 形式：
+    `1 / (-log(C * omega^1.5 / T^3) - 1)`
+- 因此，和经典 `exp` 基线不同，并不自动意味着“答案不合理”。
+- 更准确的说法应是：
+  - “它与常见的 Planck/Bose-Einstein exp 基线不同；差异本身不等于错误，也不等于新规律，需要看是否能以更简洁的 `log/exp/代数` 主变量结构继续保持低误差。”
+
+### 对 benchmark 本身的判断
+- 这个 hard v2 任务本来就是 NewtonBench 的 shifted-law 设定，不是纯粹复现真实 Planck 分布。
+- 也就是说：
+  - 物理情境提供的是“实验叙事与变量关系”；
+  - hidden law 则可以是人为 shifted 的 family。
+- 所以：
+  - 从真实物理直觉看，`log` 目标不一定是最自然的真实黑体占据数；
+  - 但从 benchmark 设计看，它是合理的，因为基准就是要测试 Agent 能否跳出示例和经典先验。
+
 ## Phase 7 第一批实现（2026-03-09）
 
 ### 新增能力
@@ -238,6 +307,39 @@
 - `scripts/newtonbench/summarize_hamilton_run.py` 已修复 `invalid_evaluation_json`：
   - 现在会从混合 stdout 中提取“最后一个 JSON 对象”，兼容 `evaluate_submission.py` 前置重试日志。
 - 汇总指标新增 `protocol_full_ok`（core 协议 + 至少一次 `evaluate_submission` 调用），用于区分“仅有 final_law”与“完成终态评测”的任务。
+
+## P0 根因更新（2026-03-13）
+
+### 关键发现：m10 complex_system 的 PySR 之前在学错目标
+- `run_experiment_for_module(..., system="complex_system")` 返回的是 `total_power`，它是带通滤波后对 `R(omega)` 的积分，不是最终要提交的 `n(omega, T)`。
+- `evaluate_submission.py` / NewtonBench 评测比较的却是 `discovered_law(omega, T)` 对隐藏 occupation law 的拟合与符号等价。
+- 原来的 `fit_pysr_candidates.py` 会按“最常见数值字段”自动选目标，因此在 hard 任务里实际拟合的是 `total_power`；同时特征仍只取 `omega,T`，没有把 `bandwidth` 当成拟合输入。
+- 这导致 PySR 学到的是“被积分后的观测量近似”，而不是提交时被评测的目标函数；因此会稳定产出高阶多项式/根号类垃圾式，并在 hard 任务上长期无法逼近真实结构。
+
+### 本轮决策
+- 不改 NewtonBench benchmark 本体，只改 Hamilton skill 接入层。
+- 对 `m10_be_distribution/complex_system` 增加窄带 proxy 目标：
+  - 仅使用 `bandwidth / center_frequency <= 0.05` 的样本；
+  - 用 `total_power / (bandwidth * center_frequency^3)` 近似 `n(omega, T)`；
+  - 让 PySR 对 proxy 搜索，而不是对原始 `total_power` 搜索。
+- 同时在 task/prompt 侧要求 Agent 主动采窄带样本，避免 proxy 行数不足。
+- 主展示任务仍保留 hard；但新增同模块 easy smoke，用于快速区分“主流程故障”与“复杂积分反演本身困难”。
+
+### 预期效果
+- hard 任务中，PySR 候选应不再系统性退化为仅拟合 `total_power` 的多项式垃圾式。
+- easy smoke 若能稳定收敛，说明 Hamilton + PySR 主流程是健康的，hard 失败就可归因到更难的逆问题而不是框架本身。
+
+## m10 easy smoke 复核（2026-03-13）
+
+### 纠偏
+- `m10_be_distribution / easy / v0` 的真实规律不是常数，而是
+  `n = 1 / (exp(C * omega / T) + 1)`。
+- 但在这次 smoke 的采样区间里，`C * omega / T` 很小，所以数值上确实会塌到接近 `0.5`。
+- 因此这次 smoke 的低 RMSLE 说明“主流程打通”是可信的，但不能证明 Agent 学到了可推广的结构。
+
+### 新决策
+- 保留这个 smoke 作为“链路健康检查”。
+- 同时修正 prompt 污染：`vanilla/simple` 禁止再借用 `complex_system` 的窄带/滤波器叙述。
 
 ### 实测回归（用户 run 目录）
 - 在 `runs/hamilton_20260309_154651` 上复跑 `--auto-evaluate` 后：

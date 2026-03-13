@@ -34,9 +34,13 @@ code_assisted: false
 
 1. 调用 `generate_task_prompt.py` 获取签名、参数说明、任务提示。
 2. 调用 `run_experiment.py` 采样（使用 `--inputs-json/--inputs-file`，不要用 `--num-samples`）。
+   - 只围绕当前任务提示里真实存在的实验系统与控制量推理，不要把别的 system 的设备/变量带进来。
+   - 对 `m10_be_distribution/complex_system`，采样输入必须显式使用 `temperature`, `center_frequency`, `bandwidth`，不要把 `omega` 直接当成 experiment API 参数。
 3. 在 `runtime.search_mode=pysr_assisted` 下，调用 `fit_pysr_candidates.py` 生成候选：
    - 若此前没有成功 fit，本轮首次 fit 必须带 `--inputs-json` 且 >=8 组唯一输入。
    - 若返回 `Not enough valid samples`，本轮继续补样并重试 fit，不要空参重复调用。
+   - 若观测是积分型 `total_power`（如 `m10_be_distribution/complex_system`），优先采窄带样本：`bandwidth / center_frequency <= 0.05`。
+   - 对这些窄带样本，可用 `total_power / (bandwidth * center_frequency^3)` 作为 `n(omega, T)` 的工作 proxy，再交给 PySR 搜索结构。
 4. 调用 `evaluate_submission.py` 评测候选（使用 `--law-text` / `--law-file`，不要传 `--candidate/--submission/--system/--noise`）。
 5. 更新 `findings.md` 与 `plan.md`（包含本轮决策、指标、下一步）。
 6. 调用 `finish(...)` 结束本轮。
@@ -69,6 +73,7 @@ def discovered_law(...):
 
 4. `runtime.search_mode=pysr_assisted` 时，至少一次成功 `fit_pysr_candidates.py`。
 5. `<final_law>` 必须与“最后一次成功 `evaluate_submission.py` 的候选”一致；不要在评测后私自改式子再 finish。
+6. 是否允许 `task_completed="true"` 以当前配置里的 `newtonbench_protocol.max_rmsle` 为准；对 hard `m10 complex_system`，`RMSLE≈1e-1 ~ 1e-2` 仍视为未完成。
 
 如果本轮没有明显改进，`task_completed="false"`，并在 `plan.md` 给出下一轮可执行动作。
 

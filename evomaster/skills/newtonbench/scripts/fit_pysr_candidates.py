@@ -30,6 +30,11 @@ class SampleRecord:
     input_signature: str
 
 
+M10_NARROWBAND_PROXY_TARGET = "derived.occupation_proxy_narrowband"
+M10_NARROWBAND_RADIANCE_TARGET = "derived.spectral_radiance_proxy_narrowband"
+DEFAULT_M10_MAX_BANDWIDTH_RATIO = 0.05
+
+
 def resolve_newtonbench_root(explicit: str | None) -> Path:
     candidates: list[Path] = []
     if explicit:
@@ -87,7 +92,7 @@ def parse_inputs(inputs_json: str | None, inputs_file: str | None) -> list[dict[
     raise ValueError("Inputs must be a JSON object or list of JSON objects.")
 
 
-def normalize_payload(module_name: str, payload: dict[str, Any]) -> dict[str, Any]:
+def normalize_payload(module_name: str, system: str, payload: dict[str, Any]) -> dict[str, Any]:
     data = dict(payload)
     if module_name == "m0_gravity":
         alias_map = {"m1": "mass1", "m2": "mass2", "r": "distance"}
@@ -97,14 +102,51 @@ def normalize_payload(module_name: str, payload: dict[str, Any]) -> dict[str, An
     if module_name == "m10_be_distribution":
         # NewtonBench m10 uses temperature/center_frequency in experiment API
         # but discovered_law signature is discovered_law(omega, T).
-        if "omega" in data and "center_frequency" not in data:
-            data["center_frequency"] = data["omega"]
         if "T" in data and "temperature" not in data:
             data["temperature"] = data["T"]
-        if "center_frequency" in data and "omega" not in data:
-            data["omega"] = data["center_frequency"]
         if "temperature" in data and "T" not in data:
             data["T"] = data["temperature"]
+        if system == "complex_system":
+            if "center_frequency" not in data and "omega" in data:
+                raise ValueError(
+                    "m10 complex_system sampling must use `center_frequency`, not `omega`."
+                )
+            missing = [
+                key
+                for key in ("temperature", "center_frequency", "bandwidth")
+                if key not in data
+            ]
+            if missing:
+                raise ValueError(
+                    "m10 complex_system sampling requires explicit "
+                    "`temperature`, `center_frequency`, and `bandwidth`. "
+                    f"Missing: {', '.join(missing)}."
+                )
+            temperature = _coerce_finite_float(data.get("temperature"))
+            center_frequency = _coerce_finite_float(data.get("center_frequency"))
+            bandwidth = _coerce_finite_float(data.get("bandwidth"))
+            if (
+                temperature is None
+                or center_frequency is None
+                or bandwidth is None
+                or temperature <= 0
+                or center_frequency <= 0
+                or bandwidth <= 0
+            ):
+                raise ValueError(
+                    "m10 complex_system sampling requires positive numeric "
+                    "`temperature`, `center_frequency`, and `bandwidth`."
+                )
+            data["temperature"] = temperature
+            data["center_frequency"] = center_frequency
+            data["bandwidth"] = bandwidth
+            data["T"] = temperature
+            data["omega"] = center_frequency
+        else:
+            if "omega" in data and "center_frequency" not in data:
+                data["center_frequency"] = data["omega"]
+            if "center_frequency" in data and "omega" not in data:
+                data["omega"] = data["center_frequency"]
     return data
 
 
@@ -177,6 +219,61 @@ def flatten_numeric_targets(obj: Any, prefix: str = "") -> dict[str, float]:
             out.update(flatten_numeric_targets(v, prefix=child_prefix))
         return out
     return out
+
+
+def derive_proxy_targets(
+    records: list[SampleRecord],
+    *,
+    module_name: str,
+    system: str,
+    m10_max_bandwidth_ratio: float,
+) -> dict[str, Any]:
+    context: dict[str, Any] = {
+        "strategy": "raw_experiment_target",
+        "preferred_target_key": None,
+        "proxy_rows": 0,
+        "proxy_candidates_total": 0,
+    }
+    if module_name != "m10_be_distribution" or system != "complex_system":
+        return context
+
+    proxy_rows = 0
+    proxy_candidates_total = 0
+    for rec in records:
+        total_power = _coerce_finite_float(rec.targets.get("total_power"))
+        if total_power is None and isinstance(rec.result_payload, dict):
+            total_power = _coerce_finite_float(rec.result_payload.get("total_power"))
+        omega = _coerce_finite_float(
+            rec.input_payload.get("center_frequency", rec.input_payload.get("omega"))
+        )
+        bandwidth = _coerce_finite_float(rec.input_payload.get("bandwidth"))
+        if total_power is None or omega is None or bandwidth is None:
+            continue
+        if omega <= 0 or bandwidth <= 0:
+            continue
+
+        proxy_candidates_total += 1
+        bandwidth_ratio = bandwidth / omega
+        rec.targets["derived.bandwidth_ratio"] = bandwidth_ratio
+        if bandwidth_ratio > m10_max_bandwidth_ratio:
+            continue
+
+        radiance_proxy = total_power / bandwidth
+        occupation_proxy = radiance_proxy / (omega**3)
+        if not math.isfinite(radiance_proxy) or not math.isfinite(occupation_proxy):
+            continue
+        rec.targets[M10_NARROWBAND_RADIANCE_TARGET] = radiance_proxy
+        rec.targets[M10_NARROWBAND_PROXY_TARGET] = occupation_proxy
+        proxy_rows += 1
+
+    return {
+        "strategy": "m10_complex_system_narrowband_proxy",
+        "preferred_target_key": M10_NARROWBAND_PROXY_TARGET,
+        "proxy_rows": proxy_rows,
+        "proxy_candidates_total": proxy_candidates_total,
+        "m10_max_bandwidth_ratio": m10_max_bandwidth_ratio,
+        "proxy_formula": "total_power / (bandwidth * center_frequency**3)",
+    }
 
 
 def build_input_signature(payload: dict[str, Any]) -> str:
@@ -264,7 +361,7 @@ def collect_new_samples(
 ) -> list[SampleRecord]:
     new_records: list[SampleRecord] = []
     for payload in inputs:
-        normalized_payload = normalize_payload(module_name, payload)
+        normalized_payload = normalize_payload(module_name, system, payload)
         signature = build_input_signature(normalized_payload)
         if signature in dedupe_signatures:
             continue
@@ -292,6 +389,9 @@ def collect_new_samples(
 
 def choose_target_key(records: list[SampleRecord], forced: str | None) -> str:
     if forced:
+        available = sum(1 for rec in records if forced in rec.targets)
+        if available <= 0:
+            raise ValueError(f"Requested target_key={forced!r} is not available in cached samples.")
         return forced
     freq: dict[str, int] = {}
     for rec in records:
@@ -607,6 +707,12 @@ def main() -> int:
         help="Comma-separated PySR unary operators",
     )
     parser.add_argument("--random-state", type=int, default=0, help="Random seed for PySR")
+    parser.add_argument(
+        "--m10-max-bandwidth-ratio",
+        type=float,
+        default=DEFAULT_M10_MAX_BANDWIDTH_RATIO,
+        help="For m10 complex_system, only use rows with bandwidth/center_frequency below this threshold when deriving occupation proxy.",
+    )
     parser.add_argument("--output", default="-", help="Output JSON path, '-' for stdout")
     args = parser.parse_args()
 
@@ -701,12 +807,35 @@ def main() -> int:
         )
         return 3
 
+    target_strategy = derive_proxy_targets(
+        existing_records,
+        module_name=args.module,
+        system=args.system,
+        m10_max_bandwidth_ratio=args.m10_max_bandwidth_ratio,
+    )
+    preferred_target_key = args.target_key or target_strategy.get("preferred_target_key")
+
     try:
-        target_key = choose_target_key(existing_records, args.target_key)
+        target_key = choose_target_key(existing_records, preferred_target_key)
         X, y = build_dataset_matrix(existing_records, feature_order, target_key)
         X, y = take_tail_points(X, y, args.max_points)
     except Exception as e:
         print(f"Failed to build fitting dataset: {e}", file=sys.stderr)
+        if target_strategy.get("strategy") == "m10_complex_system_narrowband_proxy":
+            print(
+                json.dumps(
+                    {
+                        "target_strategy": target_strategy,
+                        "hint": (
+                            "For m10 complex_system, sample more narrow-band points. "
+                            "Prefer bandwidth/center_frequency <= "
+                            f"{args.m10_max_bandwidth_ratio:.3f} and vary omega,T across orders of magnitude."
+                        ),
+                    },
+                    ensure_ascii=False,
+                ),
+                file=sys.stderr,
+            )
         return 3
 
     if len(X) < 6:
@@ -720,6 +849,20 @@ def main() -> int:
             f"target_key={target_key}, records_total={len(existing_records)}",
             file=sys.stderr,
         )
+        if target_strategy.get("strategy") == "m10_complex_system_narrowband_proxy":
+            print(
+                json.dumps(
+                    {
+                        "target_strategy": target_strategy,
+                        "hint": (
+                            "Current m10 complex_system fit uses a narrow-band occupation proxy. "
+                            "Collect additional samples with small bandwidth/center_frequency."
+                        ),
+                    },
+                    ensure_ascii=False,
+                ),
+                file=sys.stderr,
+            )
         return 3
 
     profile_binary, profile_unary = default_operator_profile(args.module)
@@ -814,6 +957,7 @@ def main() -> int:
         "function_signature": signature,
         "feature_order": feature_order,
         "target_key": target_key,
+        "target_strategy": target_strategy,
         "dataset_file": str(dataset_file),
         "records_total": len(existing_records),
         "records_added": len(new_records),

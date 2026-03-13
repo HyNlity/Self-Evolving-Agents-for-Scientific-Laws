@@ -65,7 +65,15 @@ def normalize_law_version(value: str | None) -> str | None:
     return value
 
 
-def normalize_payload(module_name: str, payload: dict[str, Any]) -> dict[str, Any]:
+def _coerce_positive_float(value: Any) -> float | None:
+    try:
+        parsed = float(value)
+    except Exception:
+        return None
+    return parsed if parsed > 0 else None
+
+
+def normalize_payload(module_name: str, system: str, payload: dict[str, Any]) -> dict[str, Any]:
     """Best-effort key normalization for common model-generated aliases."""
     data = dict(payload)
     # m0_gravity frequently receives m1/m2/r from models; map to official names.
@@ -78,14 +86,45 @@ def normalize_payload(module_name: str, payload: dict[str, Any]) -> dict[str, An
         # NewtonBench m10 complex-system experiment API uses
         # temperature/center_frequency(/bandwidth), while discovered_law
         # signature is discovered_law(omega, T). Keep both aliases in sync.
-        if "omega" in data and "center_frequency" not in data:
-            data["center_frequency"] = data["omega"]
         if "T" in data and "temperature" not in data:
             data["temperature"] = data["T"]
-        if "center_frequency" in data and "omega" not in data:
-            data["omega"] = data["center_frequency"]
         if "temperature" in data and "T" not in data:
             data["T"] = data["temperature"]
+        if system == "complex_system":
+            if "center_frequency" not in data and "omega" in data:
+                raise ValueError(
+                    "m10 complex_system experiment inputs must use official key "
+                    "`center_frequency` instead of `omega`."
+                )
+            missing = [
+                key
+                for key in ("temperature", "center_frequency", "bandwidth")
+                if key not in data
+            ]
+            if missing:
+                raise ValueError(
+                    "m10 complex_system requires explicit experiment inputs "
+                    "`temperature`, `center_frequency`, and `bandwidth`. "
+                    f"Missing: {', '.join(missing)}."
+                )
+            center_frequency = _coerce_positive_float(data.get("center_frequency"))
+            bandwidth = _coerce_positive_float(data.get("bandwidth"))
+            temperature = _coerce_positive_float(data.get("temperature"))
+            if center_frequency is None or bandwidth is None or temperature is None:
+                raise ValueError(
+                    "m10 complex_system requires positive numeric values for "
+                    "`temperature`, `center_frequency`, and `bandwidth`."
+                )
+            data["center_frequency"] = center_frequency
+            data["bandwidth"] = bandwidth
+            data["temperature"] = temperature
+            data["omega"] = center_frequency
+            data["T"] = temperature
+        else:
+            if "omega" in data and "center_frequency" not in data:
+                data["center_frequency"] = data["omega"]
+            if "center_frequency" in data and "omega" not in data:
+                data["omega"] = data["center_frequency"]
     return data
 
 
@@ -132,7 +171,7 @@ def main() -> int:
 
     results: list[Any] = []
     for payload in inputs:
-        normalized_payload = normalize_payload(args.module, payload)
+        normalized_payload = normalize_payload(args.module, args.system, payload)
         result = module.run_experiment_for_module(
             **normalized_payload,
             noise_level=args.noise,
