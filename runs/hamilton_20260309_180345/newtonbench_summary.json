@@ -1,0 +1,44 @@
+{
+  "run_dir": "/home/zychen/SRAgent/Self-Evolving-Agents-for-Scientific-Laws/runs/hamilton_20260309_180345",
+  "summary": {
+    "total_tasks": 1,
+    "completed_tasks": 1,
+    "with_final_law": 1,
+    "with_run_experiment": 1,
+    "with_run_experiment_success": 1,
+    "with_evaluate_call": 1,
+    "with_evaluate_success": 1,
+    "protocol_core_ok": 1,
+    "protocol_full_ok": 1,
+    "auto_evaluated_tasks": 1,
+    "symbolic_equivalent_true": 0,
+    "avg_exact_accuracy": 0.0,
+    "avg_rmsle": 0.08367242720302365,
+    "avg_total_tokens": 3061
+  },
+  "tasks": [
+    {
+      "task_id": "task_0",
+      "module": "m0_gravity",
+      "system": "vanilla_equation",
+      "difficulty": "easy",
+      "law_version": "v0",
+      "noise": 0.0,
+      "code_assisted": false,
+      "status": "completed",
+      "run_experiment_calls": 1,
+      "run_experiment_success_calls": 1,
+      "evaluate_calls": 1,
+      "evaluate_success_calls": 1,
+      "has_final_law": true,
+      "protocol_core_ok": true,
+      "protocol_full_ok": true,
+      "l2_not_updated_warning": true,
+      "total_tokens": 3061,
+      "exact_accuracy": 0.0,
+      "rmsle": 0.08367242720302365,
+      "symbolic_equivalent": false,
+      "evaluation_error": null
+    }
+  ]
+}

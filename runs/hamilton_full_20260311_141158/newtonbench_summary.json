@@ -1,0 +1,299 @@
+{
+  "run_dir": "/home/zychen/SRAgent/Self-Evolving-Agents-for-Scientific-Laws/runs/hamilton_full_20260311_141158",
+  "summary": {
+    "total_tasks": 1,
+    "completed_tasks": 1,
+    "task_completed_true": 0,
+    "task_completed_false": 1,
+    "with_final_law": 0,
+    "with_run_experiment": 1,
+    "with_run_experiment_success": 1,
+    "with_evaluate_call": 1,
+    "with_evaluate_success": 1,
+    "total_run_experiment_calls": 10,
+    "total_run_experiment_success_calls": 10,
+    "total_evaluate_calls": 9,
+    "total_evaluate_success_calls": 9,
+    "protocol_core_ok": 0,
+    "protocol_full_ok": 0,
+    "auto_evaluated_tasks": 1,
+    "symbolic_equivalent_true": 0,
+    "exact_accuracy_tasks": 1,
+    "rmsle_tasks": 0,
+    "avg_exact_accuracy": 0.0,
+    "avg_rmsle": null,
+    "avg_total_tokens": 167565
+  },
+  "rounds_summary": {
+    "tasks_with_round_data": 1,
+    "total_rounds": 10,
+    "satisfied_rounds": 0,
+    "task_completed_true_rounds": 0,
+    "task_completed_false_rounds": 10,
+    "run_experiment_calls_total": 10,
+    "run_experiment_success_calls_total": 10,
+    "evaluate_calls_total": 9,
+    "evaluate_success_calls_total": 9,
+    "rounds_with_eval_success": 9,
+    "avg_round_rmsle": 16.131273047645795,
+    "best_round_rmsle": 7.809031819942836
+  },
+  "tasks": [
+    {
+      "task_id": "nb_hard_iter_m10_be_distribution_hard_complex_system_v2_n0p0",
+      "module": "m10_be_distribution",
+      "system": "complex_system",
+      "difficulty": "hard",
+      "law_version": "v2",
+      "noise": 0.0,
+      "code_assisted": false,
+      "status": "completed",
+      "task_completed": false,
+      "run_experiment_calls": 10,
+      "run_experiment_success_calls": 10,
+      "evaluate_calls": 9,
+      "evaluate_success_calls": 9,
+      "has_final_law": false,
+      "protocol_core_ok": false,
+      "protocol_full_ok": false,
+      "l2_not_updated_warning": true,
+      "total_tokens": 167565,
+      "exact_accuracy": 0.0,
+      "rmsle": null,
+      "symbolic_equivalent": false,
+      "evaluation_error": "final_law_empty",
+      "rounds_total": 10,
+      "rounds_task_completed_true": 0,
+      "rounds_task_completed_false": 10,
+      "round_run_experiment_calls_total": 10,
+      "round_run_experiment_success_calls_total": 10,
+      "round_evaluate_calls_total": 9,
+      "round_evaluate_success_calls_total": 9,
+      "rounds_with_eval_success": 9,
+      "round_best_rmsle": 7.809031819942836,
+      "round_last_rmsle": null,
+      "round_rmsle_path": "R1:NA | R2:29.8599 | R3:7.80903 | R4:7.83875 | R5:NA | R6:NA | R7:32.0465 | R8:9.63632 | R9:9.59716 | R10:NA"
+    }
+  ],
+  "task_rounds": [
+    {
+      "task_id": "nb_hard_iter_m10_be_distribution_hard_complex_system_v2_n0p0",
+      "experiment_record_path": "/home/zychen/SRAgent/Self-Evolving-Agents-for-Scientific-Laws/playground/hamilton/records/experiment_20260311_142040.json",
+      "rounds_summary": {
+        "rounds_total": 10,
+        "rounds_satisfied_true": 0,
+        "rounds_task_completed_true": 0,
+        "rounds_task_completed_false": 10,
+        "round_run_experiment_calls_total": 10,
+        "round_run_experiment_success_calls_total": 10,
+        "round_evaluate_calls_total": 9,
+        "round_evaluate_success_calls_total": 9,
+        "rounds_with_eval_success": 9,
+        "rounds_with_final_law_block": 0,
+        "round_best_rmsle": 7.809031819942836,
+        "round_last_rmsle": null,
+        "round_rmsle_path": "R1:NA | R2:29.8599 | R3:7.80903 | R4:7.83875 | R5:NA | R6:NA | R7:32.0465 | R8:9.63632 | R9:9.59716 | R10:NA"
+      },
+      "rounds": [
+        {
+          "round": 1,
+          "satisfied": false,
+          "task_completed": false,
+          "run_experiment_calls": 1,
+          "run_experiment_success_calls": 1,
+          "evaluate_calls": 1,
+          "evaluate_success_calls": 1,
+          "has_final_law_block": false,
+          "signature_match": null,
+          "rmsle": null,
+          "exact_accuracy": 0.0,
+          "symbolic_equivalent": false,
+          "violations": [
+            "missing_final_law_block",
+            "final_law_missing_discovered_law_signature",
+            "missing_final_law_signature",
+            "non_finite_rmsle",
+            "rmsle_above_threshold"
+          ]
+        },
+        {
+          "round": 2,
+          "satisfied": false,
+          "task_completed": false,
+          "run_experiment_calls": 1,
+          "run_experiment_success_calls": 1,
+          "evaluate_calls": 1,
+          "evaluate_success_calls": 1,
+          "has_final_law_block": false,
+          "signature_match": true,
+          "rmsle": 29.859877716648928,
+          "exact_accuracy": 0.0,
+          "symbolic_equivalent": false,
+          "violations": [
+            "missing_final_law_block",
+            "final_law_missing_discovered_law_signature",
+            "rmsle_above_threshold"
+          ]
+        },
+        {
+          "round": 3,
+          "satisfied": false,
+          "task_completed": false,
+          "run_experiment_calls": 1,
+          "run_experiment_success_calls": 1,
+          "evaluate_calls": 1,
+          "evaluate_success_calls": 1,
+          "has_final_law_block": false,
+          "signature_match": null,
+          "rmsle": 7.809031819942836,
+          "exact_accuracy": 0.0,
+          "symbolic_equivalent": false,
+          "violations": [
+            "missing_final_law_block",
+            "final_law_missing_discovered_law_signature",
+            "missing_final_law_signature",
+            "rmsle_above_threshold"
+          ]
+        },
+        {
+          "round": 4,
+          "satisfied": false,
+          "task_completed": false,
+          "run_experiment_calls": 1,
+          "run_experiment_success_calls": 1,
+          "evaluate_calls": 1,
+          "evaluate_success_calls": 1,
+          "has_final_law_block": false,
+          "signature_match": true,
+          "rmsle": 7.8387452204952925,
+          "exact_accuracy": 0.0,
+          "symbolic_equivalent": false,
+          "violations": [
+            "missing_final_law_block",
+            "final_law_missing_discovered_law_signature",
+            "rmsle_above_threshold"
+          ]
+        },
+        {
+          "round": 5,
+          "satisfied": false,
+          "task_completed": false,
+          "run_experiment_calls": 1,
+          "run_experiment_success_calls": 1,
+          "evaluate_calls": 1,
+          "evaluate_success_calls": 1,
+          "has_final_law_block": false,
+          "signature_match": true,
+          "rmsle": null,
+          "exact_accuracy": 0.0,
+          "symbolic_equivalent": false,
+          "violations": [
+            "missing_final_law_block",
+            "final_law_missing_discovered_law_signature",
+            "non_finite_rmsle",
+            "rmsle_above_threshold"
+          ]
+        },
+        {
+          "round": 6,
+          "satisfied": false,
+          "task_completed": false,
+          "run_experiment_calls": 1,
+          "run_experiment_success_calls": 1,
+          "evaluate_calls": 0,
+          "evaluate_success_calls": 0,
+          "has_final_law_block": false,
+          "signature_match": true,
+          "rmsle": null,
+          "exact_accuracy": null,
+          "symbolic_equivalent": null,
+          "violations": [
+            "missing_successful_evaluate_submission",
+            "missing_final_law_block",
+            "final_law_missing_discovered_law_signature"
+          ]
+        },
+        {
+          "round": 7,
+          "satisfied": false,
+          "task_completed": false,
+          "run_experiment_calls": 1,
+          "run_experiment_success_calls": 1,
+          "evaluate_calls": 1,
+          "evaluate_success_calls": 1,
+          "has_final_law_block": false,
+          "signature_match": null,
+          "rmsle": 32.04650155553786,
+          "exact_accuracy": 0.0,
+          "symbolic_equivalent": false,
+          "violations": [
+            "missing_final_law_block",
+            "final_law_missing_discovered_law_signature",
+            "missing_final_law_signature",
+            "rmsle_above_threshold"
+          ]
+        },
+        {
+          "round": 8,
+          "satisfied": false,
+          "task_completed": false,
+          "run_experiment_calls": 1,
+          "run_experiment_success_calls": 1,
+          "evaluate_calls": 1,
+          "evaluate_success_calls": 1,
+          "has_final_law_block": false,
+          "signature_match": true,
+          "rmsle": 9.636318359751003,
+          "exact_accuracy": 0.0,
+          "symbolic_equivalent": false,
+          "violations": [
+            "missing_final_law_block",
+            "final_law_missing_discovered_law_signature",
+            "rmsle_above_threshold"
+          ]
+        },
+        {
+          "round": 9,
+          "satisfied": false,
+          "task_completed": false,
+          "run_experiment_calls": 1,
+          "run_experiment_success_calls": 1,
+          "evaluate_calls": 1,
+          "evaluate_success_calls": 1,
+          "has_final_law_block": false,
+          "signature_match": null,
+          "rmsle": 9.59716361349885,
+          "exact_accuracy": 0.0,
+          "symbolic_equivalent": false,
+          "violations": [
+            "missing_final_law_block",
+            "final_law_missing_discovered_law_signature",
+            "missing_final_law_signature",
+            "rmsle_above_threshold"
+          ]
+        },
+        {
+          "round": 10,
+          "satisfied": false,
+          "task_completed": false,
+          "run_experiment_calls": 1,
+          "run_experiment_success_calls": 1,
+          "evaluate_calls": 1,
+          "evaluate_success_calls": 1,
+          "has_final_law_block": false,
+          "signature_match": null,
+          "rmsle": null,
+          "exact_accuracy": 0.0,
+          "symbolic_equivalent": false,
+          "violations": [
+            "missing_final_law_block",
+            "final_law_missing_discovered_law_signature",
+            "missing_final_law_signature",
+            "non_finite_rmsle",
+            "rmsle_above_threshold"
+          ]
+        }
+      ]
+    }
+  ]
+}

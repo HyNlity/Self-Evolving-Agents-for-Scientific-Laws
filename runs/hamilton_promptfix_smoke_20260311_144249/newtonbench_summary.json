@@ -1,0 +1,135 @@
+{
+  "run_dir": "/home/zychen/SRAgent/Self-Evolving-Agents-for-Scientific-Laws/runs/hamilton_promptfix_smoke_20260311_144249",
+  "summary": {
+    "total_tasks": 1,
+    "completed_tasks": 1,
+    "task_completed_true": 0,
+    "task_completed_false": 1,
+    "with_final_law": 1,
+    "with_run_experiment": 1,
+    "with_run_experiment_success": 1,
+    "with_evaluate_call": 1,
+    "with_evaluate_success": 1,
+    "total_run_experiment_calls": 4,
+    "total_run_experiment_success_calls": 2,
+    "total_evaluate_calls": 4,
+    "total_evaluate_success_calls": 2,
+    "protocol_core_ok": 0,
+    "protocol_full_ok": 0,
+    "auto_evaluated_tasks": 1,
+    "symbolic_equivalent_true": 0,
+    "exact_accuracy_tasks": 1,
+    "rmsle_tasks": 1,
+    "avg_exact_accuracy": 0.0,
+    "avg_rmsle": 69.06700546877212,
+    "avg_total_tokens": 138825
+  },
+  "rounds_summary": {
+    "tasks_with_round_data": 1,
+    "total_rounds": 2,
+    "satisfied_rounds": 0,
+    "task_completed_true_rounds": 0,
+    "task_completed_false_rounds": 2,
+    "run_experiment_calls_total": 4,
+    "run_experiment_success_calls_total": 2,
+    "evaluate_calls_total": 4,
+    "evaluate_success_calls_total": 2,
+    "rounds_with_eval_success": 2,
+    "avg_round_rmsle": 58.67297162349149,
+    "best_round_rmsle": 48.27893777821085
+  },
+  "tasks": [
+    {
+      "task_id": "nb_hard_iter_m10_be_distribution_hard_complex_system_v2_n0p0",
+      "module": "m10_be_distribution",
+      "system": "complex_system",
+      "difficulty": "hard",
+      "law_version": "v2",
+      "noise": 0.0,
+      "code_assisted": false,
+      "status": "completed",
+      "task_completed": false,
+      "run_experiment_calls": 4,
+      "run_experiment_success_calls": 2,
+      "evaluate_calls": 4,
+      "evaluate_success_calls": 2,
+      "has_final_law": true,
+      "protocol_core_ok": false,
+      "protocol_full_ok": false,
+      "l2_not_updated_warning": true,
+      "total_tokens": 138825,
+      "exact_accuracy": 0.0,
+      "rmsle": 69.06700546877212,
+      "symbolic_equivalent": false,
+      "evaluation_error": null,
+      "rounds_total": 2,
+      "rounds_task_completed_true": 0,
+      "rounds_task_completed_false": 2,
+      "round_run_experiment_calls_total": 4,
+      "round_run_experiment_success_calls_total": 2,
+      "round_evaluate_calls_total": 4,
+      "round_evaluate_success_calls_total": 2,
+      "rounds_with_eval_success": 2,
+      "round_best_rmsle": 48.27893777821085,
+      "round_last_rmsle": 69.06700546877212,
+      "round_rmsle_path": "R1:48.2789 | R2:69.067"
+    }
+  ],
+  "task_rounds": [
+    {
+      "task_id": "nb_hard_iter_m10_be_distribution_hard_complex_system_v2_n0p0",
+      "experiment_record_path": "/home/zychen/SRAgent/Self-Evolving-Agents-for-Scientific-Laws/playground/hamilton/records/experiment_20260311_144453.json",
+      "rounds_summary": {
+        "rounds_total": 2,
+        "rounds_satisfied_true": 0,
+        "rounds_task_completed_true": 0,
+        "rounds_task_completed_false": 2,
+        "round_run_experiment_calls_total": 4,
+        "round_run_experiment_success_calls_total": 2,
+        "round_evaluate_calls_total": 4,
+        "round_evaluate_success_calls_total": 2,
+        "rounds_with_eval_success": 2,
+        "rounds_with_final_law_block": 2,
+        "round_best_rmsle": 48.27893777821085,
+        "round_last_rmsle": 69.06700546877212,
+        "round_rmsle_path": "R1:48.2789 | R2:69.067"
+      },
+      "rounds": [
+        {
+          "round": 1,
+          "satisfied": false,
+          "task_completed": false,
+          "run_experiment_calls": 2,
+          "run_experiment_success_calls": 1,
+          "evaluate_calls": 2,
+          "evaluate_success_calls": 1,
+          "has_final_law_block": true,
+          "signature_match": true,
+          "rmsle": 48.27893777821085,
+          "exact_accuracy": 0.0,
+          "symbolic_equivalent": false,
+          "violations": [
+            "rmsle_above_threshold"
+          ]
+        },
+        {
+          "round": 2,
+          "satisfied": false,
+          "task_completed": false,
+          "run_experiment_calls": 2,
+          "run_experiment_success_calls": 1,
+          "evaluate_calls": 2,
+          "evaluate_success_calls": 1,
+          "has_final_law_block": true,
+          "signature_match": true,
+          "rmsle": 69.06700546877212,
+          "exact_accuracy": 0.0,
+          "symbolic_equivalent": false,
+          "violations": [
+            "rmsle_above_threshold"
+          ]
+        }
+      ]
+    }
+  ]
+}

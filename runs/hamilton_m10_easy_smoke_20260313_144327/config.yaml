@@ -1,0 +1,77 @@
+# Hamilton Playground 配置（NewtonBench m10 easy smoke）
+# 只用于同模块快速回归，检查 PySR + 评测 + findings 闭环。
+
+llm:
+  openai:
+    provider: "openai"
+    model: "gpt-5-chat"
+    api_key: "${OPENAI_API_KEY}"
+    base_url: "${OPENAI_BASE_URL}"
+    temperature: 0.4
+    max_tokens: 12000
+    timeout: 120
+    max_retries: 3
+    retry_delay: 1.0
+
+  default: "openai"
+
+agents:
+  hamilton:
+    llm: "openai"
+    max_turns: 100
+    enable_tools: true
+
+    context:
+      max_tokens: 200000
+      truncation_strategy: "latest_half"
+      preserve_system_messages: true
+      preserve_recent_turns: 10
+
+    system_prompt_file: "prompts/hamilton_newtonbench_system.txt"
+    user_prompt_file: "prompts/hamilton_newtonbench_user.txt"
+
+    skills:
+      - newtonbench
+      - pysr
+      - evo-protocol
+
+    tools:
+      builtin: ["*"]
+
+session:
+  type: "local"
+
+  local:
+    working_dir: "./playground/hamilton/workspace_newtonbench"
+    timeout: 21600
+    gpu_devices: null
+    cpu_devices: null
+    symlinks:
+      "evomaster/skills/newtonbench": "skills/newtonbench"
+      "evomaster/skills/pysr": "skills/pysr"
+
+experiment:
+  record_dir: "./playground/hamilton/records"
+  max_rounds: 3
+  workspace_template: "playground/hamilton/workspace_newtonbench"
+  seed_input_csv: false
+  require_input_csv: false
+  search_mode: "pysr_assisted"
+  auto_backfill_l2: false
+  newtonbench_protocol:
+    require_signature_match: true
+    require_finite_rmsle: true
+    require_pysr_assisted_call: true
+    max_rmsle: 1.0
+
+llm_output:
+  show_in_console: true
+  log_to_file: true
+
+logging:
+  level: "INFO"
+  format: "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+  console: true
+
+project_root: "."
+debug: false

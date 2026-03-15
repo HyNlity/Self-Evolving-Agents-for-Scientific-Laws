@@ -1,0 +1,113 @@
+{
+  "run_dir": "/home/zychen/SRAgent/Self-Evolving-Agents-for-Scientific-Laws/runs/hamilton_hard_iter_20260310_232240",
+  "summary": {
+    "total_tasks": 1,
+    "completed_tasks": 1,
+    "task_completed_true": 1,
+    "task_completed_false": 0,
+    "with_final_law": 1,
+    "with_run_experiment": 1,
+    "with_run_experiment_success": 1,
+    "with_evaluate_call": 1,
+    "with_evaluate_success": 1,
+    "protocol_core_ok": 1,
+    "protocol_full_ok": 1,
+    "auto_evaluated_tasks": 1,
+    "symbolic_equivalent_true": 1,
+    "exact_accuracy_tasks": 1,
+    "rmsle_tasks": 1,
+    "avg_exact_accuracy": 1.0,
+    "avg_rmsle": 0.4312441918218729,
+    "avg_total_tokens": 22533
+  },
+  "rounds_summary": {
+    "tasks_with_round_data": 1,
+    "total_rounds": 2,
+    "satisfied_rounds": 1,
+    "task_completed_true_rounds": 1,
+    "task_completed_false_rounds": 1,
+    "rounds_with_eval_success": 2,
+    "avg_round_rmsle": 16.228179024635256,
+    "best_round_rmsle": 0.41576741558531005
+  },
+  "tasks": [
+    {
+      "task_id": "nb_hard_iter_m10_be_distribution_hard_complex_system_v2_n0p0",
+      "module": "m10_be_distribution",
+      "system": "complex_system",
+      "difficulty": "hard",
+      "law_version": "v2",
+      "noise": 0.0,
+      "code_assisted": false,
+      "status": "completed",
+      "task_completed": true,
+      "run_experiment_calls": 1,
+      "run_experiment_success_calls": 1,
+      "evaluate_calls": 1,
+      "evaluate_success_calls": 1,
+      "has_final_law": true,
+      "protocol_core_ok": true,
+      "protocol_full_ok": true,
+      "l2_not_updated_warning": true,
+      "total_tokens": 22533,
+      "exact_accuracy": 1.0,
+      "rmsle": 0.4312441918218729,
+      "symbolic_equivalent": true,
+      "evaluation_error": null,
+      "rounds_total": 2,
+      "rounds_task_completed_true": 1,
+      "rounds_task_completed_false": 1,
+      "rounds_with_eval_success": 2,
+      "round_best_rmsle": 0.41576741558531005,
+      "round_last_rmsle": 0.41576741558531005
+    }
+  ],
+  "task_rounds": [
+    {
+      "task_id": "nb_hard_iter_m10_be_distribution_hard_complex_system_v2_n0p0",
+      "experiment_record_path": "/home/zychen/SRAgent/Self-Evolving-Agents-for-Scientific-Laws/playground/hamilton/records/experiment_20260310_232350.json",
+      "rounds_summary": {
+        "rounds_total": 2,
+        "rounds_satisfied_true": 1,
+        "rounds_task_completed_true": 1,
+        "rounds_task_completed_false": 1,
+        "rounds_with_eval_success": 2,
+        "rounds_with_final_law_block": 1,
+        "round_best_rmsle": 0.41576741558531005,
+        "round_last_rmsle": 0.41576741558531005
+      },
+      "rounds": [
+        {
+          "round": 1,
+          "satisfied": false,
+          "task_completed": false,
+          "run_experiment_success_calls": 1,
+          "evaluate_success_calls": 1,
+          "has_final_law_block": false,
+          "signature_match": true,
+          "rmsle": 32.040590633685206,
+          "exact_accuracy": 0.0,
+          "symbolic_equivalent": false,
+          "violations": [
+            "missing_final_law_block",
+            "final_law_missing_discovered_law_signature",
+            "rmsle_above_threshold"
+          ]
+        },
+        {
+          "round": 2,
+          "satisfied": true,
+          "task_completed": true,
+          "run_experiment_success_calls": 1,
+          "evaluate_success_calls": 1,
+          "has_final_law_block": true,
+          "signature_match": true,
+          "rmsle": 0.41576741558531005,
+          "exact_accuracy": 1.0,
+          "symbolic_equivalent": true,
+          "violations": []
+        }
+      ]
+    }
+  ]
+}

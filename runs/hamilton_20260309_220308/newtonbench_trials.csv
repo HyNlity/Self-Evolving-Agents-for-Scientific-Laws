@@ -1,0 +1,2 @@
+task_id,module,system,difficulty,law_version,noise,code_assisted,status,task_completed,run_experiment_calls,run_experiment_success_calls,evaluate_calls,evaluate_success_calls,has_final_law,protocol_core_ok,protocol_full_ok,l2_not_updated_warning,total_tokens,exact_accuracy,rmsle,symbolic_equivalent,evaluation_error
+task_0,m1_coulomb_force,complex_system,easy,v0,0.0,False,completed,False,2,2,2,2,False,False,False,True,29023,0.0,20.639647469042792,False,

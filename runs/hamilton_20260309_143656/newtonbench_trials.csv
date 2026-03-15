@@ -1,0 +1,2 @@
+task_id,module,system,difficulty,law_version,noise,code_assisted,status,run_experiment_calls,evaluate_calls,has_final_law,protocol_core_ok,l2_not_updated_warning,total_tokens,exact_accuracy,rmsle,symbolic_equivalent,evaluation_error
+task_0,m0_gravity,vanilla_equation,easy,v0,0.0,False,completed,1,0,True,True,True,2919,0.0,,False,

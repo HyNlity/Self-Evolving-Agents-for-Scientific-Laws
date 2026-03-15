@@ -1,0 +1,49 @@
+{
+  "run_dir": "/home/zychen/SRAgent/Self-Evolving-Agents-for-Scientific-Laws/runs/hamilton_20260309_220308",
+  "summary": {
+    "total_tasks": 1,
+    "completed_tasks": 1,
+    "task_completed_true": 0,
+    "task_completed_false": 1,
+    "with_final_law": 0,
+    "with_run_experiment": 1,
+    "with_run_experiment_success": 1,
+    "with_evaluate_call": 1,
+    "with_evaluate_success": 1,
+    "protocol_core_ok": 0,
+    "protocol_full_ok": 0,
+    "auto_evaluated_tasks": 1,
+    "symbolic_equivalent_true": 0,
+    "exact_accuracy_tasks": 1,
+    "rmsle_tasks": 1,
+    "avg_exact_accuracy": 0.0,
+    "avg_rmsle": 20.639647469042792,
+    "avg_total_tokens": 29023
+  },
+  "tasks": [
+    {
+      "task_id": "task_0",
+      "module": "m1_coulomb_force",
+      "system": "complex_system",
+      "difficulty": "easy",
+      "law_version": "v0",
+      "noise": 0.0,
+      "code_assisted": false,
+      "status": "completed",
+      "task_completed": false,
+      "run_experiment_calls": 2,
+      "run_experiment_success_calls": 2,
+      "evaluate_calls": 2,
+      "evaluate_success_calls": 2,
+      "has_final_law": false,
+      "protocol_core_ok": false,
+      "protocol_full_ok": false,
+      "l2_not_updated_warning": true,
+      "total_tokens": 29023,
+      "exact_accuracy": 0.0,
+      "rmsle": 20.639647469042792,
+      "symbolic_equivalent": false,
+      "evaluation_error": null
+    }
+  ]
+}

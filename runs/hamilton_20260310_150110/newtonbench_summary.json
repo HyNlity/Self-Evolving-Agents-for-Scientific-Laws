@@ -1,0 +1,136 @@
+{
+  "run_dir": "/home/zychen/SRAgent/Self-Evolving-Agents-for-Scientific-Laws/runs/hamilton_20260310_150110",
+  "summary": {
+    "total_tasks": 1,
+    "completed_tasks": 1,
+    "task_completed_true": 0,
+    "task_completed_false": 1,
+    "with_final_law": 0,
+    "with_run_experiment": 1,
+    "with_run_experiment_success": 1,
+    "with_evaluate_call": 1,
+    "with_evaluate_success": 1,
+    "protocol_core_ok": 0,
+    "protocol_full_ok": 0,
+    "auto_evaluated_tasks": 1,
+    "symbolic_equivalent_true": 0,
+    "exact_accuracy_tasks": 1,
+    "rmsle_tasks": 1,
+    "avg_exact_accuracy": 0.0,
+    "avg_rmsle": 20.651113157693057,
+    "avg_total_tokens": 44759
+  },
+  "rounds_summary": {
+    "tasks_with_round_data": 1,
+    "total_rounds": 3,
+    "satisfied_rounds": 0,
+    "task_completed_true_rounds": 0,
+    "task_completed_false_rounds": 3,
+    "rounds_with_eval_success": 3,
+    "avg_round_rmsle": 20.63386046752082,
+    "best_round_rmsle": 20.62230805471106
+  },
+  "tasks": [
+    {
+      "task_id": "task_0",
+      "module": "m1_coulomb_force",
+      "system": "complex_system",
+      "difficulty": "easy",
+      "law_version": "v0",
+      "noise": 0.0,
+      "code_assisted": false,
+      "status": "completed",
+      "task_completed": false,
+      "run_experiment_calls": 1,
+      "run_experiment_success_calls": 1,
+      "evaluate_calls": 1,
+      "evaluate_success_calls": 1,
+      "has_final_law": false,
+      "protocol_core_ok": false,
+      "protocol_full_ok": false,
+      "l2_not_updated_warning": false,
+      "total_tokens": 44759,
+      "exact_accuracy": 0.0,
+      "rmsle": 20.651113157693057,
+      "symbolic_equivalent": false,
+      "evaluation_error": null,
+      "rounds_total": 3,
+      "rounds_task_completed_true": 0,
+      "rounds_task_completed_false": 3,
+      "rounds_with_eval_success": 3,
+      "round_best_rmsle": 20.62230805471106,
+      "round_last_rmsle": 20.651113157693057
+    }
+  ],
+  "task_rounds": [
+    {
+      "task_id": "task_0",
+      "experiment_record_path": "/home/zychen/SRAgent/Self-Evolving-Agents-for-Scientific-Laws/playground/hamilton/records/experiment_20260310_150245.json",
+      "rounds_summary": {
+        "rounds_total": 3,
+        "rounds_satisfied_true": 0,
+        "rounds_task_completed_true": 0,
+        "rounds_task_completed_false": 3,
+        "rounds_with_eval_success": 3,
+        "rounds_with_final_law_block": 0,
+        "round_best_rmsle": 20.62230805471106,
+        "round_last_rmsle": 20.651113157693057
+      },
+      "rounds": [
+        {
+          "round": 1,
+          "satisfied": false,
+          "task_completed": false,
+          "run_experiment_success_calls": 1,
+          "evaluate_success_calls": 1,
+          "has_final_law_block": false,
+          "signature_match": null,
+          "rmsle": 20.628160190158336,
+          "exact_accuracy": 0.0,
+          "symbolic_equivalent": false,
+          "violations": [
+            "missing_final_law_block",
+            "final_law_missing_discovered_law_signature",
+            "missing_final_law_signature",
+            "rmsle_above_threshold"
+          ]
+        },
+        {
+          "round": 2,
+          "satisfied": false,
+          "task_completed": false,
+          "run_experiment_success_calls": 1,
+          "evaluate_success_calls": 1,
+          "has_final_law_block": false,
+          "signature_match": null,
+          "rmsle": 20.62230805471106,
+          "exact_accuracy": 0.0,
+          "symbolic_equivalent": false,
+          "violations": [
+            "missing_final_law_block",
+            "final_law_missing_discovered_law_signature",
+            "missing_final_law_signature",
+            "rmsle_above_threshold"
+          ]
+        },
+        {
+          "round": 3,
+          "satisfied": false,
+          "task_completed": false,
+          "run_experiment_success_calls": 1,
+          "evaluate_success_calls": 1,
+          "has_final_law_block": false,
+          "signature_match": true,
+          "rmsle": 20.651113157693057,
+          "exact_accuracy": 0.0,
+          "symbolic_equivalent": false,
+          "violations": [
+            "missing_final_law_block",
+            "final_law_missing_discovered_law_signature",
+            "rmsle_above_threshold"
+          ]
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,1213 @@
+{
+  "run_dir": "/home/zychen/SRAgent/Self-Evolving-Agents-for-Scientific-Laws/runs/hamilton_20260310_155755",
+  "summary": {
+    "total_tasks": 12,
+    "completed_tasks": 12,
+    "task_completed_true": 7,
+    "task_completed_false": 5,
+    "with_final_law": 8,
+    "with_run_experiment": 12,
+    "with_run_experiment_success": 12,
+    "with_evaluate_call": 12,
+    "with_evaluate_success": 12,
+    "protocol_core_ok": 7,
+    "protocol_full_ok": 7,
+    "auto_evaluated_tasks": 12,
+    "symbolic_equivalent_true": 12,
+    "exact_accuracy_tasks": 12,
+    "rmsle_tasks": 12,
+    "avg_exact_accuracy": 1.0,
+    "avg_rmsle": 1.8003293516031942,
+    "avg_total_tokens": 22289.5
+  },
+  "rounds_summary": {
+    "tasks_with_round_data": 12,
+    "total_rounds": 36,
+    "satisfied_rounds": 0,
+    "task_completed_true_rounds": 0,
+    "task_completed_false_rounds": 36,
+    "rounds_with_eval_success": 36,
+    "avg_round_rmsle": 13.915640624817332,
+    "best_round_rmsle": 0.46127428841652013
+  },
+  "tasks": [
+    {
+      "task_id": "nb_0001_m0_gravity_easy_vanilla_equation_v0_n0p0",
+      "module": "m0_gravity",
+      "system": "vanilla_equation",
+      "difficulty": "easy",
+      "law_version": "v0",
+      "noise": 0.0,
+      "code_assisted": false,
+      "status": "completed",
+      "task_completed": true,
+      "run_experiment_calls": 1,
+      "run_experiment_success_calls": 1,
+      "evaluate_calls": 2,
+      "evaluate_success_calls": 2,
+      "has_final_law": true,
+      "protocol_core_ok": true,
+      "protocol_full_ok": true,
+      "l2_not_updated_warning": true,
+      "total_tokens": 20036,
+      "exact_accuracy": 1.0,
+      "rmsle": 0.0,
+      "symbolic_equivalent": true,
+      "evaluation_error": null,
+      "rounds_total": 3,
+      "rounds_task_completed_true": 0,
+      "rounds_task_completed_false": 3,
+      "rounds_with_eval_success": 3,
+      "round_best_rmsle": 0.46127428841652013,
+      "round_last_rmsle": 20.680133749012413
+    },
+    {
+      "task_id": "nb_0002_m0_gravity_easy_simple_system_v0_n0p0",
+      "module": "m0_gravity",
+      "system": "simple_system",
+      "difficulty": "easy",
+      "law_version": "v0",
+      "noise": 0.0,
+      "code_assisted": false,
+      "status": "completed",
+      "task_completed": true,
+      "run_experiment_calls": 2,
+      "run_experiment_success_calls": 2,
+      "evaluate_calls": 1,
+      "evaluate_success_calls": 1,
+      "has_final_law": true,
+      "protocol_core_ok": true,
+      "protocol_full_ok": true,
+      "l2_not_updated_warning": true,
+      "total_tokens": 23260,
+      "exact_accuracy": 1.0,
+      "rmsle": 5.7586169255541735e-06,
+      "symbolic_equivalent": true,
+      "evaluation_error": null,
+      "rounds_total": 3,
+      "rounds_task_completed_true": 0,
+      "rounds_task_completed_false": 3,
+      "rounds_with_eval_success": 3,
+      "round_best_rmsle": 0.46127428841652013,
+      "round_last_rmsle": 20.680133749012413
+    },
+    {
+      "task_id": "nb_0003_m0_gravity_easy_complex_system_v0_n0p0",
+      "module": "m0_gravity",
+      "system": "complex_system",
+      "difficulty": "easy",
+      "law_version": "v0",
+      "noise": 0.0,
+      "code_assisted": false,
+      "status": "completed",
+      "task_completed": false,
+      "run_experiment_calls": 1,
+      "run_experiment_success_calls": 1,
+      "evaluate_calls": 1,
+      "evaluate_success_calls": 1,
+      "has_final_law": true,
+      "protocol_core_ok": false,
+      "protocol_full_ok": false,
+      "l2_not_updated_warning": true,
+      "total_tokens": 27658,
+      "exact_accuracy": 1.0,
+      "rmsle": 0.4578321954003698,
+      "symbolic_equivalent": true,
+      "evaluation_error": null,
+      "rounds_total": 3,
+      "rounds_task_completed_true": 0,
+      "rounds_task_completed_false": 3,
+      "rounds_with_eval_success": 3,
+      "round_best_rmsle": 0.46127428841652013,
+      "round_last_rmsle": 20.680133749012413
+    },
+    {
+      "task_id": "nb_0004_m10_be_distribution_easy_vanilla_equation_v0_n0p0",
+      "module": "m10_be_distribution",
+      "system": "vanilla_equation",
+      "difficulty": "easy",
+      "law_version": "v0",
+      "noise": 0.0,
+      "code_assisted": false,
+      "status": "completed",
+      "task_completed": false,
+      "run_experiment_calls": 2,
+      "run_experiment_success_calls": 2,
+      "evaluate_calls": 1,
+      "evaluate_success_calls": 1,
+      "has_final_law": false,
+      "protocol_core_ok": false,
+      "protocol_full_ok": false,
+      "l2_not_updated_warning": true,
+      "total_tokens": 14700,
+      "exact_accuracy": 1.0,
+      "rmsle": 0.00018243381947012126,
+      "symbolic_equivalent": true,
+      "evaluation_error": null,
+      "rounds_total": 3,
+      "rounds_task_completed_true": 0,
+      "rounds_task_completed_false": 3,
+      "rounds_with_eval_success": 3,
+      "round_best_rmsle": 0.46127428841652013,
+      "round_last_rmsle": 20.680133749012413
+    },
+    {
+      "task_id": "nb_0005_m10_be_distribution_easy_simple_system_v0_n0p0",
+      "module": "m10_be_distribution",
+      "system": "simple_system",
+      "difficulty": "easy",
+      "law_version": "v0",
+      "noise": 0.0,
+      "code_assisted": false,
+      "status": "completed",
+      "task_completed": true,
+      "run_experiment_calls": 2,
+      "run_experiment_success_calls": 2,
+      "evaluate_calls": 2,
+      "evaluate_success_calls": 2,
+      "has_final_law": true,
+      "protocol_core_ok": true,
+      "protocol_full_ok": true,
+      "l2_not_updated_warning": true,
+      "total_tokens": 22513,
+      "exact_accuracy": 1.0,
+      "rmsle": 1.966405745041814e-07,
+      "symbolic_equivalent": true,
+      "evaluation_error": null,
+      "rounds_total": 3,
+      "rounds_task_completed_true": 0,
+      "rounds_task_completed_false": 3,
+      "rounds_with_eval_success": 3,
+      "round_best_rmsle": 0.46127428841652013,
+      "round_last_rmsle": 20.680133749012413
+    },
+    {
+      "task_id": "nb_0006_m10_be_distribution_easy_complex_system_v0_n0p0",
+      "module": "m10_be_distribution",
+      "system": "complex_system",
+      "difficulty": "easy",
+      "law_version": "v0",
+      "noise": 0.0,
+      "code_assisted": false,
+      "status": "completed",
+      "task_completed": false,
+      "run_experiment_calls": 1,
+      "run_experiment_success_calls": 1,
+      "evaluate_calls": 1,
+      "evaluate_success_calls": 1,
+      "has_final_law": false,
+      "protocol_core_ok": false,
+      "protocol_full_ok": false,
+      "l2_not_updated_warning": true,
+      "total_tokens": 9873,
+      "exact_accuracy": 1.0,
+      "rmsle": 1.9422075314641677e-07,
+      "symbolic_equivalent": true,
+      "evaluation_error": null,
+      "rounds_total": 3,
+      "rounds_task_completed_true": 0,
+      "rounds_task_completed_false": 3,
+      "rounds_with_eval_success": 3,
+      "round_best_rmsle": 0.46127428841652013,
+      "round_last_rmsle": 20.680133749012413
+    },
+    {
+      "task_id": "nb_0007_m11_heat_transfer_easy_vanilla_equation_v0_n0p0",
+      "module": "m11_heat_transfer",
+      "system": "vanilla_equation",
+      "difficulty": "easy",
+      "law_version": "v0",
+      "noise": 0.0,
+      "code_assisted": false,
+      "status": "completed",
+      "task_completed": true,
+      "run_experiment_calls": 2,
+      "run_experiment_success_calls": 2,
+      "evaluate_calls": 1,
+      "evaluate_success_calls": 1,
+      "has_final_law": true,
+      "protocol_core_ok": true,
+      "protocol_full_ok": true,
+      "l2_not_updated_warning": true,
+      "total_tokens": 32515,
+      "exact_accuracy": 1.0,
+      "rmsle": 0.0,
+      "symbolic_equivalent": true,
+      "evaluation_error": null,
+      "rounds_total": 3,
+      "rounds_task_completed_true": 0,
+      "rounds_task_completed_false": 3,
+      "rounds_with_eval_success": 3,
+      "round_best_rmsle": 0.46127428841652013,
+      "round_last_rmsle": 20.680133749012413
+    },
+    {
+      "task_id": "nb_0008_m11_heat_transfer_easy_simple_system_v0_n0p0",
+      "module": "m11_heat_transfer",
+      "system": "simple_system",
+      "difficulty": "easy",
+      "law_version": "v0",
+      "noise": 0.0,
+      "code_assisted": false,
+      "status": "completed",
+      "task_completed": true,
+      "run_experiment_calls": 1,
+      "run_experiment_success_calls": 1,
+      "evaluate_calls": 1,
+      "evaluate_success_calls": 1,
+      "has_final_law": true,
+      "protocol_core_ok": true,
+      "protocol_full_ok": true,
+      "l2_not_updated_warning": true,
+      "total_tokens": 36021,
+      "exact_accuracy": 1.0,
+      "rmsle": 0.0,
+      "symbolic_equivalent": true,
+      "evaluation_error": null,
+      "rounds_total": 3,
+      "rounds_task_completed_true": 0,
+      "rounds_task_completed_false": 3,
+      "rounds_with_eval_success": 3,
+      "round_best_rmsle": 0.46127428841652013,
+      "round_last_rmsle": 20.680133749012413
+    },
+    {
+      "task_id": "nb_0009_m11_heat_transfer_easy_complex_system_v0_n0p0",
+      "module": "m11_heat_transfer",
+      "system": "complex_system",
+      "difficulty": "easy",
+      "law_version": "v0",
+      "noise": 0.0,
+      "code_assisted": false,
+      "status": "completed",
+      "task_completed": true,
+      "run_experiment_calls": 1,
+      "run_experiment_success_calls": 1,
+      "evaluate_calls": 1,
+      "evaluate_success_calls": 1,
+      "has_final_law": true,
+      "protocol_core_ok": true,
+      "protocol_full_ok": true,
+      "l2_not_updated_warning": true,
+      "total_tokens": 21757,
+      "exact_accuracy": 1.0,
+      "rmsle": 0.0,
+      "symbolic_equivalent": true,
+      "evaluation_error": null,
+      "rounds_total": 3,
+      "rounds_task_completed_true": 0,
+      "rounds_task_completed_false": 3,
+      "rounds_with_eval_success": 3,
+      "round_best_rmsle": 0.46127428841652013,
+      "round_last_rmsle": 20.680133749012413
+    },
+    {
+      "task_id": "nb_0010_m1_coulomb_force_easy_vanilla_equation_v0_n0p0",
+      "module": "m1_coulomb_force",
+      "system": "vanilla_equation",
+      "difficulty": "easy",
+      "law_version": "v0",
+      "noise": 0.0,
+      "code_assisted": false,
+      "status": "completed",
+      "task_completed": true,
+      "run_experiment_calls": 1,
+      "run_experiment_success_calls": 1,
+      "evaluate_calls": 1,
+      "evaluate_success_calls": 1,
+      "has_final_law": true,
+      "protocol_core_ok": true,
+      "protocol_full_ok": true,
+      "l2_not_updated_warning": true,
+      "total_tokens": 21373,
+      "exact_accuracy": 1.0,
+      "rmsle": 0.0,
+      "symbolic_equivalent": true,
+      "evaluation_error": null,
+      "rounds_total": 3,
+      "rounds_task_completed_true": 0,
+      "rounds_task_completed_false": 3,
+      "rounds_with_eval_success": 3,
+      "round_best_rmsle": 0.46127428841652013,
+      "round_last_rmsle": 20.680133749012413
+    },
+    {
+      "task_id": "nb_0011_m1_coulomb_force_easy_simple_system_v0_n0p0",
+      "module": "m1_coulomb_force",
+      "system": "simple_system",
+      "difficulty": "easy",
+      "law_version": "v0",
+      "noise": 0.0,
+      "code_assisted": false,
+      "status": "completed",
+      "task_completed": false,
+      "run_experiment_calls": 1,
+      "run_experiment_success_calls": 1,
+      "evaluate_calls": 1,
+      "evaluate_success_calls": 1,
+      "has_final_law": false,
+      "protocol_core_ok": false,
+      "protocol_full_ok": false,
+      "l2_not_updated_warning": true,
+      "total_tokens": 10369,
+      "exact_accuracy": 1.0,
+      "rmsle": 0.46579769152782396,
+      "symbolic_equivalent": true,
+      "evaluation_error": null,
+      "rounds_total": 3,
+      "rounds_task_completed_true": 0,
+      "rounds_task_completed_false": 3,
+      "rounds_with_eval_success": 3,
+      "round_best_rmsle": 0.46127428841652013,
+      "round_last_rmsle": 20.680133749012413
+    },
+    {
+      "task_id": "nb_0012_m1_coulomb_force_easy_complex_system_v0_n0p0",
+      "module": "m1_coulomb_force",
+      "system": "complex_system",
+      "difficulty": "easy",
+      "law_version": "v0",
+      "noise": 0.0,
+      "code_assisted": false,
+      "status": "completed",
+      "task_completed": false,
+      "run_experiment_calls": 2,
+      "run_experiment_success_calls": 2,
+      "evaluate_calls": 2,
+      "evaluate_success_calls": 2,
+      "has_final_law": false,
+      "protocol_core_ok": false,
+      "protocol_full_ok": false,
+      "l2_not_updated_warning": true,
+      "total_tokens": 27399,
+      "exact_accuracy": 1.0,
+      "rmsle": 20.680133749012413,
+      "symbolic_equivalent": true,
+      "evaluation_error": null,
+      "rounds_total": 3,
+      "rounds_task_completed_true": 0,
+      "rounds_task_completed_false": 3,
+      "rounds_with_eval_success": 3,
+      "round_best_rmsle": 0.46127428841652013,
+      "round_last_rmsle": 20.680133749012413
+    }
+  ],
+  "task_rounds": [
+    {
+      "task_id": "nb_0001_m0_gravity_easy_vanilla_equation_v0_n0p0",
+      "experiment_record_path": "/home/zychen/SRAgent/Self-Evolving-Agents-for-Scientific-Laws/playground/hamilton/records/experiment_20260310_161348.json",
+      "rounds_summary": {
+        "rounds_total": 3,
+        "rounds_satisfied_true": 0,
+        "rounds_task_completed_true": 0,
+        "rounds_task_completed_false": 3,
+        "rounds_with_eval_success": 3,
+        "rounds_with_final_law_block": 0,
+        "round_best_rmsle": 0.46127428841652013,
+        "round_last_rmsle": 20.680133749012413
+      },
+      "rounds": [
+        {
+          "round": 1,
+          "satisfied": false,
+          "task_completed": false,
+          "run_experiment_success_calls": 1,
+          "evaluate_success_calls": 1,
+          "has_final_law_block": false,
+          "signature_match": null,
+          "rmsle": 20.605513837023064,
+          "exact_accuracy": 0.0,
+          "symbolic_equivalent": false,
+          "violations": [
+            "missing_final_law_block",
+            "final_law_missing_discovered_law_signature",
+            "missing_final_law_signature",
+            "rmsle_above_threshold"
+          ]
+        },
+        {
+          "round": 2,
+          "satisfied": false,
+          "task_completed": false,
+          "run_experiment_success_calls": 1,
+          "evaluate_success_calls": 1,
+          "has_final_law_block": false,
+          "signature_match": true,
+          "rmsle": 0.46127428841652013,
+          "exact_accuracy": 1.0,
+          "symbolic_equivalent": true,
+          "violations": [
+            "missing_final_law_block",
+            "final_law_missing_discovered_law_signature"
+          ]
+        },
+        {
+          "round": 3,
+          "satisfied": false,
+          "task_completed": false,
+          "run_experiment_success_calls": 2,
+          "evaluate_success_calls": 2,
+          "has_final_law_block": false,
+          "signature_match": null,
+          "rmsle": 20.680133749012413,
+          "exact_accuracy": 1.0,
+          "symbolic_equivalent": true,
+          "violations": [
+            "missing_final_law_block",
+            "final_law_missing_discovered_law_signature",
+            "missing_final_law_signature",
+            "rmsle_above_threshold"
+          ]
+        }
+      ]
+    },
+    {
+      "task_id": "nb_0002_m0_gravity_easy_simple_system_v0_n0p0",
+      "experiment_record_path": "/home/zychen/SRAgent/Self-Evolving-Agents-for-Scientific-Laws/playground/hamilton/records/experiment_20260310_161348.json",
+      "rounds_summary": {
+        "rounds_total": 3,
+        "rounds_satisfied_true": 0,
+        "rounds_task_completed_true": 0,
+        "rounds_task_completed_false": 3,
+        "rounds_with_eval_success": 3,
+        "rounds_with_final_law_block": 0,
+        "round_best_rmsle": 0.46127428841652013,
+        "round_last_rmsle": 20.680133749012413
+      },
+      "rounds": [
+        {
+          "round": 1,
+          "satisfied": false,
+          "task_completed": false,
+          "run_experiment_success_calls": 1,
+          "evaluate_success_calls": 1,
+          "has_final_law_block": false,
+          "signature_match": null,
+          "rmsle": 20.605513837023064,
+          "exact_accuracy": 0.0,
+          "symbolic_equivalent": false,
+          "violations": [
+            "missing_final_law_block",
+            "final_law_missing_discovered_law_signature",
+            "missing_final_law_signature",
+            "rmsle_above_threshold"
+          ]
+        },
+        {
+          "round": 2,
+          "satisfied": false,
+          "task_completed": false,
+          "run_experiment_success_calls": 1,
+          "evaluate_success_calls": 1,
+          "has_final_law_block": false,
+          "signature_match": true,
+          "rmsle": 0.46127428841652013,
+          "exact_accuracy": 1.0,
+          "symbolic_equivalent": true,
+          "violations": [
+            "missing_final_law_block",
+            "final_law_missing_discovered_law_signature"
+          ]
+        },
+        {
+          "round": 3,
+          "satisfied": false,
+          "task_completed": false,
+          "run_experiment_success_calls": 2,
+          "evaluate_success_calls": 2,
+          "has_final_law_block": false,
+          "signature_match": null,
+          "rmsle": 20.680133749012413,
+          "exact_accuracy": 1.0,
+          "symbolic_equivalent": true,
+          "violations": [
+            "missing_final_law_block",
+            "final_law_missing_discovered_law_signature",
+            "missing_final_law_signature",
+            "rmsle_above_threshold"
+          ]
+        }
+      ]
+    },
+    {
+      "task_id": "nb_0003_m0_gravity_easy_complex_system_v0_n0p0",
+      "experiment_record_path": "/home/zychen/SRAgent/Self-Evolving-Agents-for-Scientific-Laws/playground/hamilton/records/experiment_20260310_161348.json",
+      "rounds_summary": {
+        "rounds_total": 3,
+        "rounds_satisfied_true": 0,
+        "rounds_task_completed_true": 0,
+        "rounds_task_completed_false": 3,
+        "rounds_with_eval_success": 3,
+        "rounds_with_final_law_block": 0,
+        "round_best_rmsle": 0.46127428841652013,
+        "round_last_rmsle": 20.680133749012413
+      },
+      "rounds": [
+        {
+          "round": 1,
+          "satisfied": false,
+          "task_completed": false,
+          "run_experiment_success_calls": 1,
+          "evaluate_success_calls": 1,
+          "has_final_law_block": false,
+          "signature_match": null,
+          "rmsle": 20.605513837023064,
+          "exact_accuracy": 0.0,
+          "symbolic_equivalent": false,
+          "violations": [
+            "missing_final_law_block",
+            "final_law_missing_discovered_law_signature",
+            "missing_final_law_signature",
+            "rmsle_above_threshold"
+          ]
+        },
+        {
+          "round": 2,
+          "satisfied": false,
+          "task_completed": false,
+          "run_experiment_success_calls": 1,
+          "evaluate_success_calls": 1,
+          "has_final_law_block": false,
+          "signature_match": true,
+          "rmsle": 0.46127428841652013,
+          "exact_accuracy": 1.0,
+          "symbolic_equivalent": true,
+          "violations": [
+            "missing_final_law_block",
+            "final_law_missing_discovered_law_signature"
+          ]
+        },
+        {
+          "round": 3,
+          "satisfied": false,
+          "task_completed": false,
+          "run_experiment_success_calls": 2,
+          "evaluate_success_calls": 2,
+          "has_final_law_block": false,
+          "signature_match": null,
+          "rmsle": 20.680133749012413,
+          "exact_accuracy": 1.0,
+          "symbolic_equivalent": true,
+          "violations": [
+            "missing_final_law_block",
+            "final_law_missing_discovered_law_signature",
+            "missing_final_law_signature",
+            "rmsle_above_threshold"
+          ]
+        }
+      ]
+    },
+    {
+      "task_id": "nb_0004_m10_be_distribution_easy_vanilla_equation_v0_n0p0",
+      "experiment_record_path": "/home/zychen/SRAgent/Self-Evolving-Agents-for-Scientific-Laws/playground/hamilton/records/experiment_20260310_161348.json",
+      "rounds_summary": {
+        "rounds_total": 3,
+        "rounds_satisfied_true": 0,
+        "rounds_task_completed_true": 0,
+        "rounds_task_completed_false": 3,
+        "rounds_with_eval_success": 3,
+        "rounds_with_final_law_block": 0,
+        "round_best_rmsle": 0.46127428841652013,
+        "round_last_rmsle": 20.680133749012413
+      },
+      "rounds": [
+        {
+          "round": 1,
+          "satisfied": false,
+          "task_completed": false,
+          "run_experiment_success_calls": 1,
+          "evaluate_success_calls": 1,
+          "has_final_law_block": false,
+          "signature_match": null,
+          "rmsle": 20.605513837023064,
+          "exact_accuracy": 0.0,
+          "symbolic_equivalent": false,
+          "violations": [
+            "missing_final_law_block",
+            "final_law_missing_discovered_law_signature",
+            "missing_final_law_signature",
+            "rmsle_above_threshold"
+          ]
+        },
+        {
+          "round": 2,
+          "satisfied": false,
+          "task_completed": false,
+          "run_experiment_success_calls": 1,
+          "evaluate_success_calls": 1,
+          "has_final_law_block": false,
+          "signature_match": true,
+          "rmsle": 0.46127428841652013,
+          "exact_accuracy": 1.0,
+          "symbolic_equivalent": true,
+          "violations": [
+            "missing_final_law_block",
+            "final_law_missing_discovered_law_signature"
+          ]
+        },
+        {
+          "round": 3,
+          "satisfied": false,
+          "task_completed": false,
+          "run_experiment_success_calls": 2,
+          "evaluate_success_calls": 2,
+          "has_final_law_block": false,
+          "signature_match": null,
+          "rmsle": 20.680133749012413,
+          "exact_accuracy": 1.0,
+          "symbolic_equivalent": true,
+          "violations": [
+            "missing_final_law_block",
+            "final_law_missing_discovered_law_signature",
+            "missing_final_law_signature",
+            "rmsle_above_threshold"
+          ]
+        }
+      ]
+    },
+    {
+      "task_id": "nb_0005_m10_be_distribution_easy_simple_system_v0_n0p0",
+      "experiment_record_path": "/home/zychen/SRAgent/Self-Evolving-Agents-for-Scientific-Laws/playground/hamilton/records/experiment_20260310_161348.json",
+      "rounds_summary": {
+        "rounds_total": 3,
+        "rounds_satisfied_true": 0,
+        "rounds_task_completed_true": 0,
+        "rounds_task_completed_false": 3,
+        "rounds_with_eval_success": 3,
+        "rounds_with_final_law_block": 0,
+        "round_best_rmsle": 0.46127428841652013,
+        "round_last_rmsle": 20.680133749012413
+      },
+      "rounds": [
+        {
+          "round": 1,
+          "satisfied": false,
+          "task_completed": false,
+          "run_experiment_success_calls": 1,
+          "evaluate_success_calls": 1,
+          "has_final_law_block": false,
+          "signature_match": null,
+          "rmsle": 20.605513837023064,
+          "exact_accuracy": 0.0,
+          "symbolic_equivalent": false,
+          "violations": [
+            "missing_final_law_block",
+            "final_law_missing_discovered_law_signature",
+            "missing_final_law_signature",
+            "rmsle_above_threshold"
+          ]
+        },
+        {
+          "round": 2,
+          "satisfied": false,
+          "task_completed": false,
+          "run_experiment_success_calls": 1,
+          "evaluate_success_calls": 1,
+          "has_final_law_block": false,
+          "signature_match": true,
+          "rmsle": 0.46127428841652013,
+          "exact_accuracy": 1.0,
+          "symbolic_equivalent": true,
+          "violations": [
+            "missing_final_law_block",
+            "final_law_missing_discovered_law_signature"
+          ]
+        },
+        {
+          "round": 3,
+          "satisfied": false,
+          "task_completed": false,
+          "run_experiment_success_calls": 2,
+          "evaluate_success_calls": 2,
+          "has_final_law_block": false,
+          "signature_match": null,
+          "rmsle": 20.680133749012413,
+          "exact_accuracy": 1.0,
+          "symbolic_equivalent": true,
+          "violations": [
+            "missing_final_law_block",
+            "final_law_missing_discovered_law_signature",
+            "missing_final_law_signature",
+            "rmsle_above_threshold"
+          ]
+        }
+      ]
+    },
+    {
+      "task_id": "nb_0006_m10_be_distribution_easy_complex_system_v0_n0p0",
+      "experiment_record_path": "/home/zychen/SRAgent/Self-Evolving-Agents-for-Scientific-Laws/playground/hamilton/records/experiment_20260310_161348.json",
+      "rounds_summary": {
+        "rounds_total": 3,
+        "rounds_satisfied_true": 0,
+        "rounds_task_completed_true": 0,
+        "rounds_task_completed_false": 3,
+        "rounds_with_eval_success": 3,
+        "rounds_with_final_law_block": 0,
+        "round_best_rmsle": 0.46127428841652013,
+        "round_last_rmsle": 20.680133749012413
+      },
+      "rounds": [
+        {
+          "round": 1,
+          "satisfied": false,
+          "task_completed": false,
+          "run_experiment_success_calls": 1,
+          "evaluate_success_calls": 1,
+          "has_final_law_block": false,
+          "signature_match": null,
+          "rmsle": 20.605513837023064,
+          "exact_accuracy": 0.0,
+          "symbolic_equivalent": false,
+          "violations": [
+            "missing_final_law_block",
+            "final_law_missing_discovered_law_signature",
+            "missing_final_law_signature",
+            "rmsle_above_threshold"
+          ]
+        },
+        {
+          "round": 2,
+          "satisfied": false,
+          "task_completed": false,
+          "run_experiment_success_calls": 1,
+          "evaluate_success_calls": 1,
+          "has_final_law_block": false,
+          "signature_match": true,
+          "rmsle": 0.46127428841652013,
+          "exact_accuracy": 1.0,
+          "symbolic_equivalent": true,
+          "violations": [
+            "missing_final_law_block",
+            "final_law_missing_discovered_law_signature"
+          ]
+        },
+        {
+          "round": 3,
+          "satisfied": false,
+          "task_completed": false,
+          "run_experiment_success_calls": 2,
+          "evaluate_success_calls": 2,
+          "has_final_law_block": false,
+          "signature_match": null,
+          "rmsle": 20.680133749012413,
+          "exact_accuracy": 1.0,
+          "symbolic_equivalent": true,
+          "violations": [
+            "missing_final_law_block",
+            "final_law_missing_discovered_law_signature",
+            "missing_final_law_signature",
+            "rmsle_above_threshold"
+          ]
+        }
+      ]
+    },
+    {
+      "task_id": "nb_0007_m11_heat_transfer_easy_vanilla_equation_v0_n0p0",
+      "experiment_record_path": "/home/zychen/SRAgent/Self-Evolving-Agents-for-Scientific-Laws/playground/hamilton/records/experiment_20260310_161348.json",
+      "rounds_summary": {
+        "rounds_total": 3,
+        "rounds_satisfied_true": 0,
+        "rounds_task_completed_true": 0,
+        "rounds_task_completed_false": 3,
+        "rounds_with_eval_success": 3,
+        "rounds_with_final_law_block": 0,
+        "round_best_rmsle": 0.46127428841652013,
+        "round_last_rmsle": 20.680133749012413
+      },
+      "rounds": [
+        {
+          "round": 1,
+          "satisfied": false,
+          "task_completed": false,
+          "run_experiment_success_calls": 1,
+          "evaluate_success_calls": 1,
+          "has_final_law_block": false,
+          "signature_match": null,
+          "rmsle": 20.605513837023064,
+          "exact_accuracy": 0.0,
+          "symbolic_equivalent": false,
+          "violations": [
+            "missing_final_law_block",
+            "final_law_missing_discovered_law_signature",
+            "missing_final_law_signature",
+            "rmsle_above_threshold"
+          ]
+        },
+        {
+          "round": 2,
+          "satisfied": false,
+          "task_completed": false,
+          "run_experiment_success_calls": 1,
+          "evaluate_success_calls": 1,
+          "has_final_law_block": false,
+          "signature_match": true,
+          "rmsle": 0.46127428841652013,
+          "exact_accuracy": 1.0,
+          "symbolic_equivalent": true,
+          "violations": [
+            "missing_final_law_block",
+            "final_law_missing_discovered_law_signature"
+          ]
+        },
+        {
+          "round": 3,
+          "satisfied": false,
+          "task_completed": false,
+          "run_experiment_success_calls": 2,
+          "evaluate_success_calls": 2,
+          "has_final_law_block": false,
+          "signature_match": null,
+          "rmsle": 20.680133749012413,
+          "exact_accuracy": 1.0,
+          "symbolic_equivalent": true,
+          "violations": [
+            "missing_final_law_block",
+            "final_law_missing_discovered_law_signature",
+            "missing_final_law_signature",
+            "rmsle_above_threshold"
+          ]
+        }
+      ]
+    },
+    {
+      "task_id": "nb_0008_m11_heat_transfer_easy_simple_system_v0_n0p0",
+      "experiment_record_path": "/home/zychen/SRAgent/Self-Evolving-Agents-for-Scientific-Laws/playground/hamilton/records/experiment_20260310_161348.json",
+      "rounds_summary": {
+        "rounds_total": 3,
+        "rounds_satisfied_true": 0,
+        "rounds_task_completed_true": 0,
+        "rounds_task_completed_false": 3,
+        "rounds_with_eval_success": 3,
+        "rounds_with_final_law_block": 0,
+        "round_best_rmsle": 0.46127428841652013,
+        "round_last_rmsle": 20.680133749012413
+      },
+      "rounds": [
+        {
+          "round": 1,
+          "satisfied": false,
+          "task_completed": false,
+          "run_experiment_success_calls": 1,
+          "evaluate_success_calls": 1,
+          "has_final_law_block": false,
+          "signature_match": null,
+          "rmsle": 20.605513837023064,
+          "exact_accuracy": 0.0,
+          "symbolic_equivalent": false,
+          "violations": [
+            "missing_final_law_block",
+            "final_law_missing_discovered_law_signature",
+            "missing_final_law_signature",
+            "rmsle_above_threshold"
+          ]
+        },
+        {
+          "round": 2,
+          "satisfied": false,
+          "task_completed": false,
+          "run_experiment_success_calls": 1,
+          "evaluate_success_calls": 1,
+          "has_final_law_block": false,
+          "signature_match": true,
+          "rmsle": 0.46127428841652013,
+          "exact_accuracy": 1.0,
+          "symbolic_equivalent": true,
+          "violations": [
+            "missing_final_law_block",
+            "final_law_missing_discovered_law_signature"
+          ]
+        },
+        {
+          "round": 3,
+          "satisfied": false,
+          "task_completed": false,
+          "run_experiment_success_calls": 2,
+          "evaluate_success_calls": 2,
+          "has_final_law_block": false,
+          "signature_match": null,
+          "rmsle": 20.680133749012413,
+          "exact_accuracy": 1.0,
+          "symbolic_equivalent": true,
+          "violations": [
+            "missing_final_law_block",
+            "final_law_missing_discovered_law_signature",
+            "missing_final_law_signature",
+            "rmsle_above_threshold"
+          ]
+        }
+      ]
+    },
+    {
+      "task_id": "nb_0009_m11_heat_transfer_easy_complex_system_v0_n0p0",
+      "experiment_record_path": "/home/zychen/SRAgent/Self-Evolving-Agents-for-Scientific-Laws/playground/hamilton/records/experiment_20260310_161348.json",
+      "rounds_summary": {
+        "rounds_total": 3,
+        "rounds_satisfied_true": 0,
+        "rounds_task_completed_true": 0,
+        "rounds_task_completed_false": 3,
+        "rounds_with_eval_success": 3,
+        "rounds_with_final_law_block": 0,
+        "round_best_rmsle": 0.46127428841652013,
+        "round_last_rmsle": 20.680133749012413
+      },
+      "rounds": [
+        {
+          "round": 1,
+          "satisfied": false,
+          "task_completed": false,
+          "run_experiment_success_calls": 1,
+          "evaluate_success_calls": 1,
+          "has_final_law_block": false,
+          "signature_match": null,
+          "rmsle": 20.605513837023064,
+          "exact_accuracy": 0.0,
+          "symbolic_equivalent": false,
+          "violations": [
+            "missing_final_law_block",
+            "final_law_missing_discovered_law_signature",
+            "missing_final_law_signature",
+            "rmsle_above_threshold"
+          ]
+        },
+        {
+          "round": 2,
+          "satisfied": false,
+          "task_completed": false,
+          "run_experiment_success_calls": 1,
+          "evaluate_success_calls": 1,
+          "has_final_law_block": false,
+          "signature_match": true,
+          "rmsle": 0.46127428841652013,
+          "exact_accuracy": 1.0,
+          "symbolic_equivalent": true,
+          "violations": [
+            "missing_final_law_block",
+            "final_law_missing_discovered_law_signature"
+          ]
+        },
+        {
+          "round": 3,
+          "satisfied": false,
+          "task_completed": false,
+          "run_experiment_success_calls": 2,
+          "evaluate_success_calls": 2,
+          "has_final_law_block": false,
+          "signature_match": null,
+          "rmsle": 20.680133749012413,
+          "exact_accuracy": 1.0,
+          "symbolic_equivalent": true,
+          "violations": [
+            "missing_final_law_block",
+            "final_law_missing_discovered_law_signature",
+            "missing_final_law_signature",
+            "rmsle_above_threshold"
+          ]
+        }
+      ]
+    },
+    {
+      "task_id": "nb_0010_m1_coulomb_force_easy_vanilla_equation_v0_n0p0",
+      "experiment_record_path": "/home/zychen/SRAgent/Self-Evolving-Agents-for-Scientific-Laws/playground/hamilton/records/experiment_20260310_161348.json",
+      "rounds_summary": {
+        "rounds_total": 3,
+        "rounds_satisfied_true": 0,
+        "rounds_task_completed_true": 0,
+        "rounds_task_completed_false": 3,
+        "rounds_with_eval_success": 3,
+        "rounds_with_final_law_block": 0,
+        "round_best_rmsle": 0.46127428841652013,
+        "round_last_rmsle": 20.680133749012413
+      },
+      "rounds": [
+        {
+          "round": 1,
+          "satisfied": false,
+          "task_completed": false,
+          "run_experiment_success_calls": 1,
+          "evaluate_success_calls": 1,
+          "has_final_law_block": false,
+          "signature_match": null,
+          "rmsle": 20.605513837023064,
+          "exact_accuracy": 0.0,
+          "symbolic_equivalent": false,
+          "violations": [
+            "missing_final_law_block",
+            "final_law_missing_discovered_law_signature",
+            "missing_final_law_signature",
+            "rmsle_above_threshold"
+          ]
+        },
+        {
+          "round": 2,
+          "satisfied": false,
+          "task_completed": false,
+          "run_experiment_success_calls": 1,
+          "evaluate_success_calls": 1,
+          "has_final_law_block": false,
+          "signature_match": true,
+          "rmsle": 0.46127428841652013,
+          "exact_accuracy": 1.0,
+          "symbolic_equivalent": true,
+          "violations": [
+            "missing_final_law_block",
+            "final_law_missing_discovered_law_signature"
+          ]
+        },
+        {
+          "round": 3,
+          "satisfied": false,
+          "task_completed": false,
+          "run_experiment_success_calls": 2,
+          "evaluate_success_calls": 2,
+          "has_final_law_block": false,
+          "signature_match": null,
+          "rmsle": 20.680133749012413,
+          "exact_accuracy": 1.0,
+          "symbolic_equivalent": true,
+          "violations": [
+            "missing_final_law_block",
+            "final_law_missing_discovered_law_signature",
+            "missing_final_law_signature",
+            "rmsle_above_threshold"
+          ]
+        }
+      ]
+    },
+    {
+      "task_id": "nb_0011_m1_coulomb_force_easy_simple_system_v0_n0p0",
+      "experiment_record_path": "/home/zychen/SRAgent/Self-Evolving-Agents-for-Scientific-Laws/playground/hamilton/records/experiment_20260310_161348.json",
+      "rounds_summary": {
+        "rounds_total": 3,
+        "rounds_satisfied_true": 0,
+        "rounds_task_completed_true": 0,
+        "rounds_task_completed_false": 3,
+        "rounds_with_eval_success": 3,
+        "rounds_with_final_law_block": 0,
+        "round_best_rmsle": 0.46127428841652013,
+        "round_last_rmsle": 20.680133749012413
+      },
+      "rounds": [
+        {
+          "round": 1,
+          "satisfied": false,
+          "task_completed": false,
+          "run_experiment_success_calls": 1,
+          "evaluate_success_calls": 1,
+          "has_final_law_block": false,
+          "signature_match": null,
+          "rmsle": 20.605513837023064,
+          "exact_accuracy": 0.0,
+          "symbolic_equivalent": false,
+          "violations": [
+            "missing_final_law_block",
+            "final_law_missing_discovered_law_signature",
+            "missing_final_law_signature",
+            "rmsle_above_threshold"
+          ]
+        },
+        {
+          "round": 2,
+          "satisfied": false,
+          "task_completed": false,
+          "run_experiment_success_calls": 1,
+          "evaluate_success_calls": 1,
+          "has_final_law_block": false,
+          "signature_match": true,
+          "rmsle": 0.46127428841652013,
+          "exact_accuracy": 1.0,
+          "symbolic_equivalent": true,
+          "violations": [
+            "missing_final_law_block",
+            "final_law_missing_discovered_law_signature"
+          ]
+        },
+        {
+          "round": 3,
+          "satisfied": false,
+          "task_completed": false,
+          "run_experiment_success_calls": 2,
+          "evaluate_success_calls": 2,
+          "has_final_law_block": false,
+          "signature_match": null,
+          "rmsle": 20.680133749012413,
+          "exact_accuracy": 1.0,
+          "symbolic_equivalent": true,
+          "violations": [
+            "missing_final_law_block",
+            "final_law_missing_discovered_law_signature",
+            "missing_final_law_signature",
+            "rmsle_above_threshold"
+          ]
+        }
+      ]
+    },
+    {
+      "task_id": "nb_0012_m1_coulomb_force_easy_complex_system_v0_n0p0",
+      "experiment_record_path": "/home/zychen/SRAgent/Self-Evolving-Agents-for-Scientific-Laws/playground/hamilton/records/experiment_20260310_161348.json",
+      "rounds_summary": {
+        "rounds_total": 3,
+        "rounds_satisfied_true": 0,
+        "rounds_task_completed_true": 0,
+        "rounds_task_completed_false": 3,
+        "rounds_with_eval_success": 3,
+        "rounds_with_final_law_block": 0,
+        "round_best_rmsle": 0.46127428841652013,
+        "round_last_rmsle": 20.680133749012413
+      },
+      "rounds": [
+        {
+          "round": 1,
+          "satisfied": false,
+          "task_completed": false,
+          "run_experiment_success_calls": 1,
+          "evaluate_success_calls": 1,
+          "has_final_law_block": false,
+          "signature_match": null,
+          "rmsle": 20.605513837023064,
+          "exact_accuracy": 0.0,
+          "symbolic_equivalent": false,
+          "violations": [
+            "missing_final_law_block",
+            "final_law_missing_discovered_law_signature",
+            "missing_final_law_signature",
+            "rmsle_above_threshold"
+          ]
+        },
+        {
+          "round": 2,
+          "satisfied": false,
+          "task_completed": false,
+          "run_experiment_success_calls": 1,
+          "evaluate_success_calls": 1,
+          "has_final_law_block": false,
+          "signature_match": true,
+          "rmsle": 0.46127428841652013,
+          "exact_accuracy": 1.0,
+          "symbolic_equivalent": true,
+          "violations": [
+            "missing_final_law_block",
+            "final_law_missing_discovered_law_signature"
+          ]
+        },
+        {
+          "round": 3,
+          "satisfied": false,
+          "task_completed": false,
+          "run_experiment_success_calls": 2,
+          "evaluate_success_calls": 2,
+          "has_final_law_block": false,
+          "signature_match": null,
+          "rmsle": 20.680133749012413,
+          "exact_accuracy": 1.0,
+          "symbolic_equivalent": true,
+          "violations": [
+            "missing_final_law_block",
+            "final_law_missing_discovered_law_signature",
+            "missing_final_law_signature",
+            "rmsle_above_threshold"
+          ]
+        }
+      ]
+    }
+  ]
+}

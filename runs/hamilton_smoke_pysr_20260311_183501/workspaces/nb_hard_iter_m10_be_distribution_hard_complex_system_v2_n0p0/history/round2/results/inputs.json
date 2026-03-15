@@ -1,0 +1,1 @@
+[{"temperature":100.0, "center_frequency":1e9, "bandwidth":1e8}, {"temperature":500.0, "center_frequency":5e9, "bandwidth":5e8}, {"temperature":1000.0, "center_frequency":1e10, "bandwidth":1e9}, {"temperature":2000.0, "center_frequency":5e10, "bandwidth":1e10}]
