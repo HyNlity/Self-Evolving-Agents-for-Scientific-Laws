@@ -26,6 +26,14 @@
 
 from .exp import BaseExp, extract_agent_response
 from .playground import BasePlayground
+from .task_contract import (
+    TASK_CONTRACT_FILE,
+    TaskContractBundle,
+    default_task_contract,
+    normalize_task_contract,
+    parse_task_description_with_contract,
+    write_task_contract,
+)
 from .registry import (
     register_playground,
     get_playground_class,
@@ -36,9 +44,15 @@ from .registry import (
 __all__ = [
     "BaseExp",
     "BasePlayground",
+    "TASK_CONTRACT_FILE",
+    "TaskContractBundle",
+    "default_task_contract",
     "extract_agent_response",
+    "normalize_task_contract",
+    "parse_task_description_with_contract",
     "register_playground",
     "get_playground_class",
     "list_registered_playgrounds",
     "get_registry_info",
+    "write_task_contract",
 ]

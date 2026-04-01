@@ -7,11 +7,11 @@
 llm:
   openai:
     provider: "openai"
-    model: "gpt-5"
+    model: "gpt-5-chat"
     api_key: "sk-1HEDl1RNtaMQV7TDet0FUA"
     base_url: "https://llm.dp.tech"
     temperature: 0.7
-    max_tokens: 128000
+    max_tokens: 4096
     timeout: 120
     max_retries: 3
     retry_delay: 1.0
@@ -43,6 +43,26 @@ agents:
     tools:
       builtin: ["*"]
 
+  critic:
+    llm: "openai"
+    max_turns: 80
+    enable_tools: true
+
+    context:
+      max_tokens: 120000
+      truncation_strategy: "latest_half"
+      preserve_system_messages: true
+      preserve_recent_turns: 8
+
+    system_prompt_file: "prompts/critic_system.txt"
+    user_prompt_file: "prompts/critic_user.txt"
+
+    skills:
+      - evo-protocol
+
+    tools:
+      builtin: ["*"]
+
 # ============================================
 # Session 配置
 # ============================================
@@ -61,6 +81,35 @@ session:
 # ============================================
 experiment:
   max_rounds: 3
+
+memory:
+  l3:
+    enabled: true
+    root: "./runs/hamilton_l3"
+    top_k: 6
+    retrieval_mode: "hybrid"
+    promotion_policy: "task_end_only"
+
+critic_policy:
+  report_md_name: "critic_report.md"
+  report_json_name: "critic_report.json"
+
+completion_policy:
+  require_critic_approval: true
+  enforce_artifact_updates: true
+  enforce_artifact_updates_on_any_finish: true
+  enforce_task_contract_evidence: true
+  max_hamilton_repair_attempts: 2
+  require_trace_update: true
+  required_l2_files:
+    - "plan.md"
+    - "findings.md"
+  require_machine_state_update: true
+  machine_state_any_of:
+    - "variable_memory.json"
+    - "routing_state.json"
+    - "hypothesis_archive.jsonl"
+    - "falsification_log.jsonl"
 
 # ============================================
 # LLM 输出 & 工具调用日志

@@ -1,164 +1,162 @@
-# Hamilton - 符号回归 Agent
+# Hamilton - 冗余变量感知的符号回归 Agent
 
-Hamilton 是基于 EvoMaster 框架的符号回归（Symbolic Regression）Agent，专门用于在**过完备变量**环境下发现数学方程。
+Hamilton 是基于 EvoMaster 的符号回归 playground，目标是在**过完备变量**场景下做支持集恢复、方程结构发现和证伪驱动的科学迭代。
+
+当前版本采用：
+
+- **HCC 三层记忆**：L1 / L2 / L3
+- **双 Agent 对抗编排**：Hamilton proposer + Critic challenger
+- **任务后 promotion**：仅把可迁移经验从 L2 提炼到 L3
 
 ## 架构
 
-单 Agent + HCC（Hierarchical Cognitive Caching）分层记忆，四阶段闭环迭代。
-
 ```
-┌─────────────────────────────────────────────────────┐
-│                HamiltonPlayground                    │
-│              (多轮循环编排 + L2 post-check)           │
-└─────────────────────────────────────────────────────┘
-                          │
-                          ▼
-┌─────────────────────────────────────────────────────┐
-│                     RoundExp                         │
-│  系统: 重置 L1 → Agent 执行 → 解析 signal → post-check │
-└─────────────────────────────────────────────────────┘
-                          │
-                          ▼
-┌─────────────────────────────────────────────────────┐
-│                  单 Agent 闭环                        │
-│  Discovery → Verification → Promotion → Finish       │
-│  (变量分析/PySR/拟合) (残差/OOD) (写L2) (signal)      │
-└─────────────────────────────────────────────────────┘
+┌────────────────────────────────────────────────────────────┐
+│                    HamiltonPlayground                      │
+│     任务级 orchestration + L3 retrieval/promotion          │
+└────────────────────────────────────────────────────────────┘
+                           │
+                           ▼
+┌────────────────────────────────────────────────────────────┐
+│                         RoundExp                           │
+│   Hamilton proposer → Critic challenger → system gate      │
+└────────────────────────────────────────────────────────────┘
+                           │
+                           ▼
+┌────────────────────────────────────────────────────────────┐
+│                 HCC Memory + Runtime Artifacts             │
+│ L1: trace / reports   L2: findings/plan/state   L3: cards  │
+└────────────────────────────────────────────────────────────┘
 ```
 
-### 每轮流程
+### 轮级协议
 
 ```
 Round N 开始
     │
-    ├─ 系统: 创建 history/round{N}/trace.md（L1 工作记忆）
-    ├─ 系统: 快照 L2 文件 mtime（用于 post-check）
+    ├─ 系统: 初始化 history/round{N}/trace.md / critic_report.*
+    ├─ 系统: 读取 L2 + L3（l3_context.md, critic_context.md, debate_state.json）
     │
-    ├─ Agent 执行（四阶段闭环）
-    │     ├─ Phase 1 Discovery: 读 L2 → 变量分析 → 拟合/PySR
-    │     ├─ Phase 2 Verification: 残差分析 → OOD 验证
-    │     ├─ Phase 3 Promotion: 提炼结论到 findings.md + plan.md
-    │     └─ Phase 4 Finish: 发出 satisfied 信号
+    ├─ Hamilton proposer
+    │     ├─ 读 task/L2/L3
+    │     ├─ 变量角色分析 / 路由 / 搜索 / 证伪
+    │     └─ 更新 findings.md / plan.md / machine-readable state
     │
-    ├─ 系统: 解析 satisfied 信号
-    ├─ 系统: L2 post-check（检测 findings.md / plan.md 是否更新）
+    ├─ Critic challenger
+    │     ├─ 审查本轮结论
+    │     ├─ 输出 critic_report.md / critic_report.json
+    │     └─ 决定 approved / blocking
     │
-Round N 结束 → satisfied=true ? 停止 : 进入 Round N+1
+    ├─ 系统: 汇总 gate
+    └─ Round N 结束 → proposer satisfied 且 critic approved ? 停止 : 下一轮
 ```
 
-### HCC 分层记忆
+## HCC 分层记忆
 
-| 层级 | 文件 | 生命周期 | 内容 |
+| 层级 | 载体 | 生命周期 | 作用 |
 |------|------|----------|------|
-| **L1** | `history/round{N}/trace.md` | 每轮独立 | 当前轮的操作记录、指标、工作笔记 |
-| **L2** | `plan.md` | 持久积累（阶梯形） | 战略计划、当前最优、策略队列、失败方法 |
-| **L2** | `findings.md` | 持久积累（阶梯形） | 验证结论、实验结果表、最优方程演化 |
+| **L1** | `history/round{N}/trace.md`、`critic_report.*` | 每轮独立 | 当前轮操作记录、challenge、局部观察 |
+| **L2** | `plan.md`、`findings.md`、`variable_memory.json`、`routing_state.json`、`hypothesis_archive.jsonl`、`falsification_log.jsonl` | 当前任务持续存在 | 任务内累积知识与可审计状态 |
+| **L3** | `runs/hamilton_l3/` 下的结构化 cards | 跨任务持久 | 支持集先验、失败模式、验证 rubric、工具路由经验 |
 
-L2 文件驱动跨轮知识传递：Agent 每轮读取 L2 → 基于历史做决策 → 将新发现提炼回 L2。
+### L3 设计原则
 
----
+- 不存原始对话，不把长轨迹直接塞进长期记忆
+- 只保留可迁移的 distilled experience
+- 默认存六类 card：
+  - `domain_prior`
+  - `support_set_prior`
+  - `operator_motif`
+  - `failure_card`
+  - `validation_rubric`
+  - `tool_recipe`
 
-## 文件结构
-
-```
-playground/hamilton/
-├── core/
-│   ├── playground.py      # HamiltonPlayground: 多轮编排 + workspace 初始化
-│   ├── exp.py             # RoundExp: 单轮执行 + signal 解析 + L2 post-check
-│   └── constants.py       # Signal markers、字段定义
-├── prompts/
-│   ├── hamilton_system.txt # Agent 系统提示（四阶段协议 + HCC 规范）
-│   └── hamilton_user.txt   # Agent 用户提示（任务注入）
-├── benchmarks/
-│   └── viv/               # VIV 多风速基准数据 + 任务描述
-├── workspace/             # 模板目录（自动 seed 到 run workspace）
-│   ├── task.md            # 任务描述（含数据路径和评估标准）
-│   └── input/             # 数据文件（CSV）
-├── README.md
-└── TODO.md
-```
-
-### Run Workspace（运行时）
+## 运行时工作空间
 
 ```
 {run_dir}/workspace/
-├── task.md                # 任务描述（只读）
-├── plan.md                # L2 战略（当前最优 + 策略队列 + 失败方法）
-├── findings.md            # L2 知识（验证结论 + 实验结果 + 最优方程演化）
-├── input/                 # 数据文件（只读）
-├── lib/                   # 可复用脚本（跨轮持久）
-│   └── README.md          # 脚本索引
+├── task.md
+├── plan.md
+├── findings.md
+├── variable_memory.json
+├── routing_state.json
+├── hypothesis_archive.jsonl
+├── falsification_log.jsonl
+├── l3_context.md
+├── critic_context.md
+├── debate_state.json
+├── task_signature.json
+├── l3_hits.json
+├── lib/
 └── history/
     └── round{N}/
-        ├── trace.md       # L1 工作记忆（每轮独立）
-        ├── scripts/       # Agent 写的脚本
-        └── results/       # 每轮结果 + 派生数据
+        ├── trace.md
+        ├── critic_report.md
+        ├── critic_report.json
+        ├── scripts/
+        └── results/
 ```
 
----
+## 配置
 
-## 核心组件
+`configs/hamilton/config.yaml` 和 `config_no_pysr.yaml` 现在都包含：
 
-### PySR Skill (`evomaster/skills/pysr/`)
-- PySR API 速查和模板指南
-- Agent 通过 `use_skill pysr get_info` / `get_reference` 按需加载
+- `agents.hamilton`
+- `agents.critic`
+- `memory.l3`
+- `critic_policy`
+- `completion_policy`
 
-### Evo Protocol Skill (`evomaster/skills/evo-protocol/`)
-- 科学迭代协议（假设 → 实验 → 记录 → 迭代）
-- plan 模板（含 Current Best markers）、完整规则、收敛指南
+关键配置项：
 
-### Signal 机制
-- Agent 调用 `finish(message="...", task_completed="true"/"false")` 结束本轮
-- 系统从 `task_completed` 判断是否停止迭代（`"true"` = 停止，`"false"` = 继续）
-- 如果 Agent 未调用 finish，系统默认继续迭代并输出 warning
+```yaml
+memory:
+  l3:
+    enabled: true
+    root: "./runs/hamilton_l3"
+    top_k: 6
+    retrieval_mode: "hybrid"
+    promotion_policy: "task_end_only"
 
----
+completion_policy:
+  require_critic_approval: true
+```
+
+## Prompt 角色分工
+
+### Hamilton proposer
+
+- 主动发现方程、支持集和变量角色
+- 更新 L2 与实验产物
+- 解决 Critic 留下的 blocker
+
+### Critic challenger
+
+- 不负责代写答案
+- 只做结构化审查和 challenge 提出
+- 使用固定 taxonomy：
+  - `support_set_attack`
+  - `structure_attack`
+  - `ood_generalization_attack`
+  - `physics_consistency_attack`
+  - `numerical_stability_attack`
+  - `evidence_gap_attack`
 
 ## 使用方法
 
 ```bash
-# 准备数据：将 CSV 放入 workspace/input/
-cp your_data.csv playground/hamilton/workspace/input/
+# no-pysr 模式 smoke
+python run.py --agent hamilton --config configs/hamilton/config_no_pysr.yaml --task "发现数据中的方程"
 
-# 编写任务描述
-vim playground/hamilton/workspace/task.md
-
-# 运行
-python run.py --agent hamilton --task "发现数据中的方程"
+# 默认模式
+python run.py --agent hamilton --config configs/hamilton/config.yaml --task playground/hamilton/workspace/task.md
 
 # 指定 run 目录
-python run.py --agent hamilton --task "task" --run-dir runs/my_experiment
+python run.py --agent hamilton --config configs/hamilton/config.yaml --task "task" --run-dir runs/my_experiment
 ```
 
-### 配置
+## 当前验证状态
 
-修改 `configs/hamilton/config.yaml`：
-
-```yaml
-agent:
-  max_turns: 100      # 单轮最大工具调用次数
-
-experiment:
-  max_rounds: 10      # 最大迭代轮数
-```
-
----
-
-## 设计理念
-
-### 外部化记忆（HCC）
-不依赖 Agent 内部 memory，用文件作为持久化知识库：
-- L1 每轮重置，避免上下文膨胀
-- L2 持久积累，确保知识不丢失
-- 人类可阅读、检查和干预
-
-### 单 Agent 闭环
-一个 Agent 完成发现 → 验证 → 提炼全流程，避免多 Agent 间信息损耗。
-
-### 系统最小职责
-系统只做三件事：重置 L1、解析 satisfied 信号、L2 post-check。所有语义决策由 Agent 自主完成。
-
-### 可调试性
-- 每轮脚本保存到 `history/round{N}/scripts/`
-- L2 文件记录完整实验演化过程
-- L2 post-check 提前发现 Agent 跳过 Promotion 的问题
+- L3 memory 的 promotion / retrieval 已有单测
+- proposer-critic gate 已有单测
+- 真实端到端运行仍依赖外部 LLM API 可用性

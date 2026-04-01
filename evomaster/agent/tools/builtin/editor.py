@@ -121,23 +121,54 @@ class EditorTool(BaseTool):
         assert isinstance(params, EditorToolParams)
         
         try:
+            normalized_path = self._normalize_workspace_alias(session, params.path)
             # 验证路径
-            path_type = self._validate_path(session, params.command, params.path)
+            path_type = self._validate_path(session, params.command, normalized_path)
             
             if params.command == "view":
-                return self._view(session, params.path, params.view_range, path_type)
+                return self._view(session, normalized_path, params.view_range, path_type)
             elif params.command == "create":
-                return self._create(session, params.path, params.file_text)
+                return self._create(session, normalized_path, params.file_text)
             elif params.command == "str_replace":
-                return self._str_replace(session, params.path, params.old_str, params.new_str)
+                return self._str_replace(session, normalized_path, params.old_str, params.new_str)
             elif params.command == "insert":
-                return self._insert(session, params.path, params.insert_line, params.new_str)
+                return self._insert(session, normalized_path, params.insert_line, params.new_str)
             elif params.command == "undo_edit":
-                return self._undo_edit(session, params.path)
+                return self._undo_edit(session, normalized_path)
             else:
                 return f"Unknown command: {params.command}", {}
         except ToolError as e:
             return f"ERROR:\n{str(e)}", {"error": str(e)}
+
+    def _resolve_workspace_root(self, session: BaseSession) -> str | None:
+        """解析当前会话的真实工作空间根目录。"""
+        get_workspace_path = getattr(session, "get_workspace_path", None)
+        if callable(get_workspace_path):
+            workspace_override = get_workspace_path()
+            if workspace_override:
+                return str(Path(workspace_override))
+
+        config = getattr(session, "config", None)
+        workspace_path = getattr(config, "workspace_path", None)
+        if workspace_path:
+            return str(Path(workspace_path))
+        return None
+
+    def _normalize_workspace_alias(self, session: BaseSession, path: str) -> str:
+        """把通用 `/workspace/...` 别名映射到当前会话的真实工作空间。"""
+        if not Path(path).is_absolute():
+            return path
+
+        workspace_root = self._resolve_workspace_root(session)
+        if not workspace_root or workspace_root == "/workspace":
+            return path
+
+        if path == "/workspace":
+            return workspace_root
+        if path.startswith("/workspace/"):
+            relative_part = path.removeprefix("/workspace/")
+            return str(Path(workspace_root) / relative_part)
+        return path
 
     def _validate_path(
         self,
@@ -359,4 +390,3 @@ class EditorTool(BaseTool):
             for i, line in enumerate(content.split("\n"))
         ]
         return f"Here's the result of running `cat -n` on {descriptor}:\n" + "\n".join(numbered_lines) + "\n"
-

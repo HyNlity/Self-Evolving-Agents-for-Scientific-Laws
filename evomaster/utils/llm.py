@@ -6,10 +6,12 @@
 from __future__ import annotations
 
 import base64
+import json
 import logging
 import sys
 import time
 from abc import ABC, abstractmethod
+from json import JSONDecodeError
 from pathlib import Path
 from typing import Any, Literal
 
@@ -102,6 +104,186 @@ def truncate_content(content: str, max_length: int = 5000, head_length: int = 25
     if len(content) <= max_length:
         return content
     return content[:head_length] + "\n... [truncated] ...\n" + content[-tail_length:]
+
+
+def _strip_code_fence(content: str) -> str:
+    """移除包裹整个文本的 Markdown code fence。"""
+    stripped = content.strip()
+    if not (stripped.startswith("```") and stripped.endswith("```")):
+        return stripped
+
+    lines = stripped.splitlines()
+    if not lines:
+        return stripped
+    if lines[0].startswith("```"):
+        lines = lines[1:]
+    if lines and lines[-1].strip() == "```":
+        lines = lines[:-1]
+    return "\n".join(lines).strip()
+
+
+def _normalize_tool_name(name: str) -> str:
+    """把 functions.finish 这类名称归一化为 finish。"""
+    normalized = (name or "").strip()
+    prefixes = ("functions.", "function.", "tools.", "tool.")
+    changed = True
+    while changed:
+        changed = False
+        for prefix in prefixes:
+            if normalized.startswith(prefix):
+                normalized = normalized[len(prefix):]
+                changed = True
+    return normalized
+
+
+def _collect_tool_payloads(payload: Any) -> list[dict[str, Any]]:
+    """从 JSON 负载中提取形如 {name, arguments} 的工具调用。"""
+    collected: list[dict[str, Any]] = []
+
+    if isinstance(payload, list):
+        for item in payload:
+            collected.extend(_collect_tool_payloads(item))
+        return collected
+
+    if not isinstance(payload, dict):
+        return collected
+
+    if "tool_calls" in payload and isinstance(payload["tool_calls"], list):
+        collected.extend(_collect_tool_payloads(payload["tool_calls"]))
+        return collected
+
+    if "name" in payload and "arguments" in payload:
+        collected.append(payload)
+        return collected
+
+    function_payload = payload.get("function")
+    if isinstance(function_payload, dict) and "name" in function_payload:
+        collected.append(
+            {
+                "name": function_payload["name"],
+                "arguments": function_payload.get("arguments", {}),
+            }
+        )
+
+    return collected
+
+
+def _infer_tool_name_from_arguments(
+    payload: dict[str, Any],
+    available_tool_names: set[str] | None = None,
+) -> str | None:
+    """根据参数形状推断工具名，兼容网关丢失 name 外壳的情况。"""
+    available = available_tool_names or set()
+
+    if {"message", "task_completed"}.issubset(payload):
+        return "finish" if not available or "finish" in available else None
+
+    if "path" in payload and (
+        "file_text" in payload
+        or "old_str" in payload
+        or "new_str" in payload
+        or "insert_line" in payload
+        or "view_range" in payload
+    ):
+        return "str_replace_editor" if not available or "str_replace_editor" in available else None
+
+    if "command" in payload and "path" in payload:
+        return "str_replace_editor" if not available or "str_replace_editor" in available else None
+
+    if "command" in payload and (
+        "is_input" in payload or "timeout" in payload or ("path" not in payload and "file_text" not in payload)
+    ):
+        return "execute_bash" if not available or "execute_bash" in available else None
+
+    if "action" in payload:
+        return "use_skill" if not available or "use_skill" in available else None
+
+    return None
+
+
+def parse_compatible_tool_calls(
+    content: str | None,
+    available_tool_names: set[str] | None = None,
+) -> tuple[list[ToolCall] | None, bool]:
+    """把网关返回的 JSON 形文本恢复成 ToolCall。
+
+    Returns:
+        (tool_calls, fully_consumed)
+        fully_consumed=True 表示整个 content 都可视作工具调用负载，调用方可安全清空文本内容。
+    """
+    if not isinstance(content, str) or not content.strip():
+        return None, False
+
+    text = _strip_code_fence(content)
+    decoder = json.JSONDecoder()
+    index = 0
+    raw_payloads: list[Any] = []
+    parsed_any = False
+
+    while True:
+        while index < len(text) and text[index] in " \t\r\n,":
+            index += 1
+        if index >= len(text):
+            break
+
+        try:
+            payload, next_index = decoder.raw_decode(text, index)
+        except JSONDecodeError:
+            if not parsed_any:
+                return None, False
+            return None, False
+
+        raw_payloads.append(payload)
+        parsed_any = True
+        index = next_index
+
+    if not raw_payloads:
+        return None, False
+
+    tool_calls: list[ToolCall] = []
+    for payload in raw_payloads:
+        candidate_items = _collect_tool_payloads(payload)
+        if not candidate_items and isinstance(payload, dict):
+            candidate_items = [payload]
+
+        for item in candidate_items:
+            normalized_name = _normalize_tool_name(str(item.get("name", "")))
+            arguments_payload = item.get("arguments", {})
+            if not normalized_name and isinstance(item, dict):
+                inferred_name = _infer_tool_name_from_arguments(item, available_tool_names)
+                if inferred_name:
+                    normalized_name = inferred_name
+                    arguments_payload = item
+            if not normalized_name:
+                continue
+            if available_tool_names and normalized_name not in available_tool_names:
+                continue
+
+            arguments = arguments_payload
+            if arguments is None:
+                arguments_str = "{}"
+            elif isinstance(arguments, str):
+                arguments_str = arguments
+            else:
+                arguments_str = json.dumps(arguments, ensure_ascii=False)
+
+            tool_calls.append(
+                ToolCall(
+                    id=f"compat_call_{len(tool_calls) + 1}",
+                    type="function",
+                    function=FunctionCall(
+                        name=normalized_name,
+                        arguments=arguments_str,
+                    ),
+                )
+            )
+
+    if not tool_calls:
+        return None, False
+
+    trailing = text[index:].strip(" \t\r\n,")
+    fully_consumed = trailing == ""
+    return tool_calls, fully_consumed
 
 
 class LLMConfig(BaseModel):
@@ -374,6 +556,38 @@ class BaseLLM(ABC):
         """
         return [spec.model_dump() for spec in tool_specs]
 
+    def _build_tool_name_set(self, tools: list[dict[str, Any]] | None) -> set[str]:
+        """从 API tool spec 中提取工具名称集合。"""
+        names: set[str] = set()
+        for tool in tools or []:
+            if not isinstance(tool, dict):
+                continue
+            function_spec = tool.get("function")
+            if isinstance(function_spec, dict):
+                name = function_spec.get("name")
+                if isinstance(name, str) and name.strip():
+                    names.add(name.strip())
+        return names
+
+    def _recover_tool_calls_from_content(
+        self,
+        content: str | None,
+        tools: list[dict[str, Any]] | None,
+    ) -> tuple[str | None, list[ToolCall] | None]:
+        """兼容某些网关把 tool call 作为普通 JSON 文本返回的情况。"""
+        available_tool_names = self._build_tool_name_set(tools)
+        tool_calls, fully_consumed = parse_compatible_tool_calls(content, available_tool_names)
+        if not tool_calls:
+            return content, None
+
+        self.logger.info(
+            "Recovered %d compatible tool call(s) from text content: %s",
+            len(tool_calls),
+            [tc.function.name for tc in tool_calls],
+        )
+        normalized_content = None if fully_consumed else content
+        return normalized_content, tool_calls
+
 
 class OpenAILLM(BaseLLM):
     """OpenAI LLM 实现
@@ -452,8 +666,12 @@ class OpenAILLM(BaseLLM):
                 for tc in message.tool_calls
             ]
 
+        content_text = message.content
+        if not tool_calls:
+            content_text, tool_calls = self._recover_tool_calls_from_content(message.content, tools)
+
         return LLMResponse(
-            content=message.content,
+            content=content_text,
             tool_calls=tool_calls,
             finish_reason=choice.finish_reason,
             usage={
@@ -626,8 +844,12 @@ class DeepSeekLLM(BaseLLM):
                 for tc in message.tool_calls
             ]
 
+        content_text = message.content
+        if not tool_calls:
+            content_text, tool_calls = self._recover_tool_calls_from_content(message.content, tools)
+
         return LLMResponse(
-            content=message.content,
+            content=content_text,
             tool_calls=tool_calls,
             finish_reason=choice.finish_reason,
             usage={

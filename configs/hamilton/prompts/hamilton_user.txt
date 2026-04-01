@@ -1,5 +1,9 @@
 本轮编号：{input_data[round]}
 本轮工作目录：history/round{input_data[round]}/（已由系统创建，脚本放 scripts/，结果放 results/）
+任务契约策略：{input_data[task_contract_policy]}
+任务审查重点：{input_data[task_review_focus]}
+优先阅读：task_contract.json、l3_context.md、critic_context.md、debate_state.json，以及本轮的 critic_report（如果前一轮已有）
+路径提醒：优先使用当前真实工作目录下的相对路径；如果不确定，先 `execute_bash pwd` 或 `ls`
 
 ## 任务
 {description}

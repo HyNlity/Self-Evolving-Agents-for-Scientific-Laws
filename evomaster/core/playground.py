@@ -23,6 +23,7 @@ from evomaster.agent.session import LocalSession, LocalSessionConfig, DockerSess
 from evomaster.agent.tools import MCPToolManager
 from evomaster.skills import SkillRegistry
 from .exp import BaseExp
+from .task_contract import TaskContractBundle, parse_task_description_with_contract, write_task_contract
 from typing import List, Any, Callable
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
@@ -106,6 +107,14 @@ class BasePlayground:
         self.tools = None
         self.mcp_manager = None
         self._base_skill_registry = None
+
+    def parse_task_contract(self, task_description: str) -> TaskContractBundle:
+        """Parse optional task front matter into a normalized contract."""
+        return parse_task_description_with_contract(task_description)
+
+    def materialize_task_contract(self, workspace_path: str | Path, task_contract: dict[str, Any]) -> Path:
+        """Persist the normalized task contract in the active workspace."""
+        return write_task_contract(workspace_path, task_contract)
 
     def _start_loop_in_thread(self) -> threading.Thread:
 

@@ -1,0 +1,17 @@
+本轮编号：{input_data[round]}
+Hamilton 本轮摘要：
+{input_data[hamilton_summary]}
+
+Hamilton 是否声称已完成：{input_data[hamilton_task_completed]}
+Challenge taxonomy：{input_data[challenge_taxonomy]}
+任务契约策略：{input_data[task_contract_policy]}
+任务审查重点：{input_data[task_review_focus]}
+
+你必须至少审查以下路径：
+- task_contract.json
+- {input_data[trace_file]}
+- {input_data[critic_report_md]}
+- {input_data[critic_report_json]}
+
+## 审查任务
+{description}

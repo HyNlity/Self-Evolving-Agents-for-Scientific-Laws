@@ -1,65 +1,65 @@
-"""Hamilton Playground 实现
+"""Hamilton Playground implementation with L3 memory and proposer/critic flow."""
 
-符号回归Agent - 过完备变量下的方程发现
+from __future__ import annotations
 
-模式：
-- RoundExp: 单轮执行单元（单 Agent 完成发现→验证→提炼闭环）
-- Playground: 循环编排，多次调用RoundExp
-
-HCC 分层记忆：
-- L1 (history/round{N}/trace.md): 每轮独立的工作记忆
-- L2 (plan.md, findings.md): 只增不减的知识积累
-"""
-
+import importlib.util
 import json
 import logging
+import platform
+import shutil
 import sys
+from datetime import datetime, timezone
 from pathlib import Path
-from datetime import datetime
+from typing import Any
 
-# 确保可以导入evomaster模块
+# Ensure evomaster is importable when playground is run directly.
 _module_root = Path(__file__).resolve().parent.parent.parent.parent
 if str(_module_root) not in sys.path:
     sys.path.insert(0, str(_module_root))
 
 from evomaster.core import BasePlayground, register_playground
-from .constants import CURRENT_BEST_BEGIN, CURRENT_BEST_END, STRATEGY_QUEUE_BEGIN, STRATEGY_QUEUE_END
+from evomaster.core.task_contract import TASK_CONTRACT_FILE
 
+from .constants import (
+    CRITIC_CONTEXT_FILE,
+    CURRENT_BEST_BEGIN,
+    CURRENT_BEST_END,
+    DEBATE_STATE_FILE,
+    ENV_CAPABILITIES_FILE,
+    L3_CONTEXT_FILE,
+    STRATEGY_QUEUE_BEGIN,
+    STRATEGY_QUEUE_END,
+)
 from .exp import RoundExp
+from .l3 import L3MemoryStore
+
+
+def _utc_now() -> str:
+    return datetime.now(timezone.utc).isoformat()
 
 
 @register_playground("hamilton")
 class HamiltonPlayground(BasePlayground):
-    """Hamilton Playground - 符号回归Agent
+    """Hamilton Playground - redundancy-aware symbolic regression agent."""
 
-    编排多轮迭代：
-    1. 创建单个 Agent（发现 + 验证 + 提炼）
-    2. 循环调用 RoundExp (每轮)
-    3. 记录实验结果
+    DEFAULT_WORKSPACE_ASSETS = ("input",)
 
-    每轮流程（HCC）：
-    - 系统: L1 trace.md 在每轮 round 目录创建
-    - Agent: 读 L2 → 发现方程 → 验证 → 提炼到 L2 → finish(satisfied)
-    - 系统: 解析 signal，决定继续/停止
-
-    使用方式：
-        python run.py --agent hamilton --task "发现数据中的方程"
-    """
-
-    def __init__(self, config_dir: Path = None, config_path: Path = None):
-        """初始化 Hamilton Playground"""
+    def __init__(self, config_dir: Path | None = None, config_path: Path | None = None):
         self._project_root = Path(__file__).resolve().parent.parent.parent.parent
-
         if config_path is None and config_dir is None:
             config_dir = self._project_root / "configs" / "hamilton"
 
         super().__init__(config_dir=config_dir, config_path=config_path)
         self.logger = logging.getLogger(self.__class__.__name__)
 
-        # Agents
         self.workspace_dir: Path | None = None
+        self.hamilton_agent = None
+        self.critic_agent = None
+        self.l3_store: L3MemoryStore | None = None
+        self.l3_config: dict[str, Any] = {}
+        self.critic_policy: dict[str, Any] = {}
+        self.completion_policy: dict[str, Any] = {}
 
-        # 实验记录
         self.experiment_record = {
             "task": "",
             "rounds": [],
@@ -67,56 +67,222 @@ class HamiltonPlayground(BasePlayground):
         }
 
     def set_run_dir(self, run_dir: str | Path, task_id: str | None = None) -> None:
-        """设置 run 目录。
-
-        Workspace seeding and file initialization are deferred to _init_workspace()
-        which is called at run() time when the task description is available.
-        """
         super().set_run_dir(run_dir, task_id=task_id)
 
-    def _init_workspace(self) -> None:
-        """Initialize workspace with L2 persistent files.
+    def _resolve_project_path(self, path_like: str | Path) -> Path:
+        path = Path(path_like)
+        if path.is_absolute():
+            return path
+        return (self._project_root / path).resolve()
 
-        Creates: findings.md, plan.md, lib/ (if not exist).
-        Agent is responsible for creating any data directories it needs.
-        """
+    def _get_extra_section(self, name: str) -> dict[str, Any]:
+        section = getattr(self.config, name, {})
+        return section if isinstance(section, dict) else {}
+
+    def _get_l3_config(self) -> dict[str, Any]:
+        memory_cfg = self._get_extra_section("memory")
+        l3_cfg = memory_cfg.get("l3", {}) if isinstance(memory_cfg, dict) else {}
+        if not isinstance(l3_cfg, dict):
+            l3_cfg = {}
+        return {
+            "enabled": bool(l3_cfg.get("enabled", True)),
+            "root": l3_cfg.get("root", "./runs/hamilton_l3"),
+            "top_k": int(l3_cfg.get("top_k", 6) or 6),
+            "retrieval_mode": l3_cfg.get("retrieval_mode", "hybrid"),
+            "promotion_policy": l3_cfg.get("promotion_policy", "task_end_only"),
+        }
+
+    def _workspace_template_dir(self) -> Path:
+        return self._project_root / "playground" / "hamilton" / "workspace"
+
+    def _copy_asset_path(self, source: Path, destination: Path) -> int:
+        if source.is_file():
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(source, destination)
+            return 1
+
+        if not source.is_dir():
+            return 0
+
+        copied_files = 0
+        for source_path in sorted(source.rglob("*")):
+            if source_path.is_dir():
+                continue
+            relative_path = source_path.relative_to(source)
+            target_path = destination / relative_path
+            target_path.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(source_path, target_path)
+            copied_files += 1
+        return copied_files
+
+    def _materialize_workspace_assets(self, workspace: Path) -> dict[str, Any]:
+        template_dir = self._workspace_template_dir()
+        asset_summary: dict[str, Any] = {}
+
+        for relative_name in self.DEFAULT_WORKSPACE_ASSETS:
+            source = template_dir / relative_name
+            if not source.exists():
+                self.logger.warning("Workspace asset source missing: %s", source)
+                continue
+
+            destination = workspace / relative_name
+            copied_files = self._copy_asset_path(source, destination)
+            asset_summary[relative_name] = {
+                "source": str(source),
+                "destination": str(destination),
+                "files_copied": copied_files,
+            }
+            self.logger.info(
+                "Materialized workspace asset `%s` -> %s (%s files)",
+                relative_name,
+                destination,
+                copied_files,
+            )
+
+        return asset_summary
+
+    def _detect_environment_capabilities(self) -> dict[str, Any]:
+        packages = {}
+        for package_name in ("numpy", "pandas", "scipy", "sklearn", "sympy"):
+            packages[package_name] = bool(importlib.util.find_spec(package_name))
+
+        available = [name for name, installed in packages.items() if installed]
+        missing = [name for name, installed in packages.items() if not installed]
+        return {
+            "detected_at": _utc_now(),
+            "python_executable": sys.executable,
+            "python_version": platform.python_version(),
+            "packages": packages,
+            "available_packages": available,
+            "missing_packages": missing,
+            "notes": [
+                "Only packages marked available should be assumed by Hamilton scripts.",
+                "If a required package is missing, prefer stdlib alternatives or record the blocker explicitly.",
+            ],
+        }
+
+    def _materialize_environment_capabilities(self, workspace: Path) -> Path:
+        capabilities_path = workspace / ENV_CAPABILITIES_FILE
+        capabilities = self._detect_environment_capabilities()
+        capabilities_path.write_text(
+            json.dumps(capabilities, ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
+        self.logger.info("Materialized %s", capabilities_path)
+        return capabilities_path
+
+    def _init_workspace(
+        self,
+        task_description: str | None = None,
+        task_contract: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
         workspace = self.workspace_dir
         if not workspace:
-            return
+            return {}
 
         workspace.mkdir(parents=True, exist_ok=True)
+        workspace_assets = self._materialize_workspace_assets(workspace)
+        environment_capabilities_path = self._materialize_environment_capabilities(workspace)
 
-        # findings.md (L2 — knowledge accumulation, append-only)
+        task_file = workspace / "task.md"
+        if task_description and (
+            not task_file.exists() or task_file.read_text(encoding="utf-8") != task_description
+        ):
+            task_file.write_text(task_description, encoding="utf-8")
+            self.logger.info("Created %s", task_file)
+        if task_contract is not None:
+            contract_path = self.materialize_task_contract(workspace, task_contract)
+            self.logger.info("Materialized %s", contract_path)
+
         findings_file = workspace / "findings.md"
         if not findings_file.exists():
             findings_file.write_text(
                 "# 研究发现\n\n"
+                "## 任务目标\n"
+                "- 恢复稳定支持集，而不是只追求最低误差\n"
+                "- 识别冗余变量、代理变量和伪相关变量\n"
+                "- 发现可解释的方程结构，并记录证伪结果\n\n"
                 "## 关键洞察\n"
-                "（经验证的数据观察和物理关系）\n\n"
+                "（只记录经验证的变量角色、结构结论和失效模式）\n\n"
+                "## 变量角色结论\n"
+                "| 变量 | 当前角色 | 证据 | 更新时间 |\n"
+                "|------|----------|------|----------|\n\n"
                 "## 实验结果\n"
-                "| 轮次 | 方法 | 方程 | MSE (训练) | MSE (OOD) | 结论 |\n"
-                "|------|------|------|-----------|-----------|------|\n\n"
+                "| 轮次 | 方法 | 支持集 | 方程 | Fit | Support Stability | Structure | 结论 |\n"
+                "|------|------|--------|------|-----|-------------------|-----------|------|\n\n"
+                "## 证伪记录\n"
+                "| 轮次 | 候选 | 证伪实验 | 结果 | 结论 |\n"
+                "|------|------|----------|------|------|\n\n"
                 "## 最优方程演化\n"
                 "（记录最优方程在各轮中的变化过程）\n",
                 encoding="utf-8",
             )
-            self.logger.info(f"Created {findings_file}")
+            self.logger.info("Created %s", findings_file)
 
-        # lib/ (L2 — reusable scripts, persists across rounds)
         lib_dir = workspace / "lib"
         lib_dir.mkdir(parents=True, exist_ok=True)
         lib_readme = lib_dir / "README.md"
         if not lib_readme.exists():
             lib_readme.write_text("# lib/ 可复用脚本索引\n\n（每次新增脚本时更新）\n", encoding="utf-8")
 
-        # plan.md (L2 — strategic plan with Current Best markers)
+        state_files = {
+            "variable_memory.json": {
+                "variables": {},
+                "last_updated_round": 0,
+                "notes": [],
+            },
+            "routing_state.json": {
+                "current_strategy": "",
+                "strategy_history": [],
+                "last_updated_round": 0,
+            },
+        }
+        for filename, payload in state_files.items():
+            state_path = workspace / filename
+            if not state_path.exists():
+                state_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+                self.logger.info("Created %s", state_path)
+
+        for filename in ("hypothesis_archive.jsonl", "falsification_log.jsonl"):
+            state_path = workspace / filename
+            if not state_path.exists():
+                state_path.write_text("", encoding="utf-8")
+                self.logger.info("Created %s", state_path)
+
+        if not (workspace / L3_CONTEXT_FILE).exists():
+            (workspace / L3_CONTEXT_FILE).write_text("# L3 跨任务经验\n\n（待系统填充）\n", encoding="utf-8")
+        if not (workspace / CRITIC_CONTEXT_FILE).exists():
+            (workspace / CRITIC_CONTEXT_FILE).write_text("# Critic 审核参考\n\n（待系统填充）\n", encoding="utf-8")
+        if not (workspace / DEBATE_STATE_FILE).exists():
+            (workspace / DEBATE_STATE_FILE).write_text(
+                json.dumps(
+                    {
+                        "task_id": getattr(self, "task_id", ""),
+                        "task_hash": "",
+                        "unresolved_challenges": [],
+                        "resolved_challenges": [],
+                        "rounds": [],
+                        "updated_at": _utc_now(),
+                    },
+                    ensure_ascii=False,
+                    indent=2,
+                ),
+                encoding="utf-8",
+            )
+
         plan_file = workspace / "plan.md"
         if not plan_file.exists():
             self._create_plan_file(plan_file)
-            self.logger.info(f"Created {plan_file}")
+            self.logger.info("Created %s", plan_file)
+
+        if environment_capabilities_path:
+            workspace_assets["environment_capabilities"] = {
+                "path": str(environment_capabilities_path),
+            }
+
+        return workspace_assets
 
     def setup(self) -> None:
-        """初始化组件（复用 BasePlayground.setup）"""
         self.logger.info("Setting up Hamilton playground...")
         super().setup()
 
@@ -126,77 +292,110 @@ class HamiltonPlayground(BasePlayground):
             except Exception:
                 self.workspace_dir = None
 
-        if self.agent is None:
-            raise ValueError("Hamilton requires 'agents.hamilton' section in config.yaml")
+        self.hamilton_agent = self.agents.get("hamilton_agent")
+        self.critic_agent = self.agents.get("critic_agent")
+        self.agent = self.hamilton_agent
+
+        if self.hamilton_agent is None:
+            raise ValueError("Hamilton requires 'agents.hamilton' in config.yaml")
+        if self.critic_agent is None:
+            raise ValueError("Hamilton proposer-critic flow requires 'agents.critic' in config.yaml")
+
+        self.l3_config = self._get_l3_config()
+        self.critic_policy = self._get_extra_section("critic_policy")
+        self.completion_policy = self._get_extra_section("completion_policy")
+
+        if self.l3_config.get("enabled", True):
+            self.l3_store = L3MemoryStore(
+                root=self._resolve_project_path(self.l3_config["root"]),
+                top_k=self.l3_config["top_k"],
+                retrieval_mode=self.l3_config["retrieval_mode"],
+            )
+        else:
+            self.l3_store = None
 
         self.logger.info("Hamilton playground setup complete")
 
     def run(self, task_description: str, output_file: str | None = None) -> dict:
-        """运行多轮实验
-
-        Args:
-            task_description: 任务描述
-            output_file: 结果保存文件
-
-        Returns:
-            运行结果
-        """
         try:
             self.setup()
-
-            # 设置轨迹文件
             self._setup_trajectory_file(output_file)
 
-            # 更新实验记录
-            self.experiment_record["task"] = task_description
+            task_bundle = self.parse_task_contract(task_description)
+            normalized_task = task_bundle.task_body
+            task_contract = task_bundle.contract
 
-            # 获取最大轮数
-            experiment_cfg = getattr(self.config, 'experiment', {})
+            self.experiment_record["task"] = normalized_task
+            self.experiment_record["task_contract"] = task_contract
+            if normalized_task != task_description:
+                self.experiment_record["task_raw"] = task_description
+
+            experiment_cfg = getattr(self.config, "experiment", {})
             if not isinstance(experiment_cfg, dict):
                 experiment_cfg = {}
-            max_rounds = int(experiment_cfg.get('max_rounds', 5) or 5)
+            max_rounds = int(experiment_cfg.get("max_rounds", 5) or 5)
 
-            self.logger.info(f"Starting Hamilton experiment with {max_rounds} max rounds")
-            self.logger.info(f"Task: {task_description}")
+            self.logger.info("Starting Hamilton experiment with %s max rounds", max_rounds)
+            self.logger.info("Task: %s", normalized_task)
 
-            # 初始化workspace
-            self._init_workspace()
+            workspace_assets = self._init_workspace(normalized_task, task_contract=task_contract)
+            if workspace_assets:
+                self.experiment_record["workspace_assets"] = workspace_assets
 
-            # 循环执行多轮
+            task_id = getattr(self, "task_id", None) or "hamilton_task"
+            if self.workspace_dir:
+                self.experiment_record["task_contract_path"] = str(self.workspace_dir / TASK_CONTRACT_FILE)
+
+            if self.l3_store and self.workspace_dir:
+                signature = self.l3_store.build_task_signature(normalized_task, task_id=task_id)
+                hits = self.l3_store.materialize_runtime_context(self.workspace_dir, signature)
+                self.experiment_record["task_signature"] = signature.to_dict()
+                self.experiment_record["l3_hits_count"] = len(hits.get("cards", []))
+
             for round_num in range(1, max_rounds + 1):
                 self.logger.info("=" * 60)
-                self.logger.info(f"Round {round_num}/{max_rounds}")
+                self.logger.info("Round %s/%s", round_num, max_rounds)
                 self.logger.info("=" * 60)
 
-                # 创建单轮exp
                 exp = RoundExp(
-                    agent=self.agent,
+                    hamilton_agent=self.hamilton_agent,
+                    critic_agent=self.critic_agent,
                     config=self.config,
                     round_num=round_num,
+                    critic_policy=self.critic_policy,
+                    completion_policy=self.completion_policy,
+                    task_contract=task_contract,
                 )
                 if self.workspace_dir:
                     exp.set_run_dir(self.workspace_dir)
 
-                # 执行单轮
-                result = exp.run(task_description)
+                result = exp.run(normalized_task, task_id=task_id)
                 signal = result.get("signal") or {}
 
-                # 记录结果（确保可 JSON 序列化；完整轨迹已由 trajectories/trajectory.json 持久化）
                 round_record = {
                     "round": result.get("round", round_num),
-                    "agent_result": result.get("agent_result", ""),
-                    "findings": result.get("findings", ""),
+                    "hamilton_result": result.get("hamilton_result", ""),
+                    "critic_result": result.get("critic_result", ""),
                     "signal": signal,
+                    "hamilton_signal": result.get("hamilton_signal", {}),
+                    "critic_signal": result.get("critic_signal", {}),
+                    "critic_report": result.get("critic_report", {}),
                     "trajectory": self._summarize_trajectory(result.get("trajectory")),
                 }
                 self.experiment_record["rounds"].append(round_record)
 
-                # 检查是否完成
                 if self._is_satisfied(signal):
-                    self.logger.info("Found satisfactory result!")
+                    self.logger.info("Found critic-approved satisfactory result.")
                     break
 
-            # 保存实验记录
+            if self.l3_store and self.workspace_dir and self.l3_config.get("promotion_policy") == "task_end_only":
+                self.experiment_record["l3_promotion"] = self.l3_store.promote_task(
+                    self.workspace_dir,
+                    task_description=normalized_task,
+                    task_id=task_id,
+                    experiment_record=self.experiment_record,
+                )
+
             self._save_experiment_record()
 
             return {
@@ -206,37 +405,43 @@ class HamiltonPlayground(BasePlayground):
             }
 
         except Exception as e:
-            self.logger.error(f"Hamilton experiment failed: {e}", exc_info=True)
-            return {
-                "status": "failed",
-                "error": str(e),
-            }
-
+            self.logger.error("Hamilton experiment failed: %s", e, exc_info=True)
+            return {"status": "failed", "error": str(e)}
         finally:
             self.cleanup()
 
-    def _create_plan_file(self, plan_file: Path):
-        """创建 plan.md 研究计划文件"""
+    def _create_plan_file(self, plan_file: Path) -> None:
         plan_content = f"""# 研究计划
 
 {CURRENT_BEST_BEGIN}
 ## 当前最优
 - 轮次：0
 - 方程：无
-- MSE：未知
+- 支持集：待定
+- Fit：未知
+- Support Stability：未知
+- Structure：未知
 - 更新时间：{datetime.now().isoformat()}
 {CURRENT_BEST_END}
 
 ## 数据概览
-（首轮 EDA 后填写：变量列表、基本统计、初步观察）
+（首轮填写：变量列表、冗余风险、初步支持集判断）
+
+## 当前路由策略
+- 当前阶段：待定
+- 选择理由：待定
+- 下一轮优先工具：待定
 
 ## 当前假设
 1. 待定
 
 ## 已确认知识
-- 相关变量：待定
-- 排除变量：待定
+- 核心变量：待定
+- 冗余/代理变量：待定
 - 已发现的关键关系：无
+
+## 证伪优先级
+1. 待定
 
 ## 策略队列
 {STRATEGY_QUEUE_BEGIN}
@@ -244,13 +449,17 @@ class HamiltonPlayground(BasePlayground):
 {STRATEGY_QUEUE_END}
 
 ## 失败方法
-| 轮次 | 策略 | 变量 | 模板/参数 | MSE | 失败原因 |
-|------|------|------|-----------|-----|----------|
+| 轮次 | 策略 | 支持集 | 模板/参数 | 失败类型 | 失败原因 |
+|------|------|--------|-----------|----------|----------|
 """
         plan_file.write_text(plan_content, encoding="utf-8")
 
-    def _summarize_trajectory(self, trajectory) -> dict:
-        """提取轨迹的轻量摘要（避免 experiment_record 保存巨大对象）。"""
+    def _summarize_trajectory(self, trajectory: Any) -> dict[str, Any]:
+        if isinstance(trajectory, dict):
+            return {key: self._summarize_single_trajectory(value) for key, value in trajectory.items()}
+        return self._summarize_single_trajectory(trajectory)
+
+    def _summarize_single_trajectory(self, trajectory: Any) -> dict[str, Any]:
         try:
             if trajectory is None:
                 return {}
@@ -261,8 +470,7 @@ class HamiltonPlayground(BasePlayground):
         except Exception:
             return {}
 
-    def _is_satisfied(self, signal) -> bool:
-        """判断是否找到满意结果（只接受结构化信号，避免关键字误触发）"""
+    def _is_satisfied(self, signal: dict[str, Any]) -> bool:
         try:
             if isinstance(signal, dict):
                 return bool(signal.get("satisfied", False))
@@ -270,8 +478,7 @@ class HamiltonPlayground(BasePlayground):
             pass
         return False
 
-    def _save_experiment_record(self):
-        """保存实验记录到 run_dir"""
+    def _save_experiment_record(self) -> None:
         try:
             if self.run_dir:
                 record_dir = Path(self.run_dir) / "records"
@@ -281,13 +488,11 @@ class HamiltonPlayground(BasePlayground):
 
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
             record_file = record_dir / f"experiment_{timestamp}.json"
-
             self.experiment_record["end_time"] = datetime.now().isoformat()
 
-            with open(record_file, 'w', encoding='utf-8') as f:
+            with record_file.open("w", encoding="utf-8") as f:
                 json.dump(self.experiment_record, f, ensure_ascii=False, indent=2)
 
-            self.logger.info(f"Experiment record saved to {record_file}")
-
+            self.logger.info("Experiment record saved to %s", record_file)
         except Exception as e:
-            self.logger.error(f"Failed to save experiment record: {e}")
+            self.logger.error("Failed to save experiment record: %s", e)
