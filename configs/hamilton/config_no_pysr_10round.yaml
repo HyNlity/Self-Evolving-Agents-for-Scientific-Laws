@@ -1,5 +1,5 @@
-# Hamilton Playground 配置文件（无 PySR）
-# 纯代码驱动的方程发现 Agent
+# Hamilton Playground 配置文件（无 PySR，10 轮长跑）
+# 基于当前默认 no_pysr 配置，仅将 max_rounds 调整为 10
 
 # ============================================
 # LLM 配置
@@ -36,7 +36,6 @@ agents:
     system_prompt_file: "prompts/hamilton_system_no_pysr.txt"
     user_prompt_file: "prompts/hamilton_user.txt"
 
-    # 只保留 evo-protocol，不加载 pysr
     skills:
       - evo-protocol
 
@@ -84,7 +83,7 @@ session:
 # 实验配置
 # ============================================
 experiment:
-  max_rounds: 3
+  max_rounds: 10
 
 memory:
   l3:

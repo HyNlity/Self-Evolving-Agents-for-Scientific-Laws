@@ -20,6 +20,7 @@ from .constants import (
     CRITIC_CHALLENGE_TYPES,
     CRITIC_CONTEXT_FILE,
     DEBATE_STATE_FILE,
+    HCC_LEDGER_FILE,
     L3_CONTEXT_FILE,
     L3_HITS_FILE,
     L3_INDEX_FILE,
@@ -310,6 +311,7 @@ class L3MemoryStore:
         score += 1.0 * len(card_data & set(signature.data_tags))
         score += 0.35 * len(card_keywords & set(signature.keywords))
         score += float(card.get("confidence", 0.5))
+        score += 0.5 * float(card.get("evidence_strength", card.get("confidence", 0.5)))
 
         if card.get("task_hash") == signature.task_hash:
             score -= 100.0
@@ -330,10 +332,13 @@ class L3MemoryStore:
             lines.extend(
                 [
                     f"### {idx}. [{card.get('card_type', 'unknown')}] {card.get('title', 'Untitled')}",
+                    f"- polarity: {card.get('polarity', 'positive')}",
+                    f"- producer_role: {card.get('producer_role', 'system')}",
                     f"- score: {card.get('score', 0)}",
                     f"- source_task: {card.get('task_id', 'unknown')} ({card.get('task_hash', 'n/a')})",
                     f"- summary: {card.get('summary', '')}",
                     f"- applicability: {card.get('applicability', '')}",
+                    f"- survived_attack: {card.get('survived_attack', False)}",
                     "",
                 ]
             )
@@ -350,12 +355,18 @@ class L3MemoryStore:
             "",
             "## 优先审查的跨任务失败模式",
         ]
-        failure_cards = [card for card in hits.get("cards", []) if card.get("card_type") in {"failure_card", "validation_rubric"}]
+        failure_cards = [
+            card
+            for card in hits.get("cards", [])
+            if card.get("polarity") == "negative"
+            or card.get("card_type") in {"failure_card", "validation_rubric"}
+        ]
         for idx, card in enumerate(failure_cards, start=1):
             lines.extend(
                 [
                     f"### {idx}. [{card.get('card_type', 'unknown')}] {card.get('title', 'Untitled')}",
                     f"- summary: {card.get('summary', '')}",
+                    f"- producer_role: {card.get('producer_role', 'system')}",
                     f"- negative_evidence: {card.get('negative_evidence', '')}",
                     f"- source_task: {card.get('task_id', 'unknown')}",
                     "",
@@ -376,20 +387,24 @@ class L3MemoryStore:
 
         findings = _read_text(workspace / "findings.md")
         plan = _read_text(workspace / "plan.md")
+        hcc_ledger = _read_jsonl(workspace / HCC_LEDGER_FILE)
         variable_memory = _read_json(workspace / "variable_memory.json", {})
         routing_state = _read_json(workspace / "routing_state.json", {})
         hypothesis_archive = _read_jsonl(workspace / "hypothesis_archive.jsonl")
         falsification_log = _read_jsonl(workspace / "falsification_log.jsonl")
         debate_state = _read_json(workspace / DEBATE_STATE_FILE, {})
-        result_artifacts = [path for path in workspace.glob("history/round*/results/*") if path.is_file()]
-        approved_rounds = [
-            round_record
-            for round_record in experiment_record.get("rounds", [])
-            if isinstance(round_record, dict)
-            and isinstance(round_record.get("signal"), dict)
-            and round_record["signal"].get("critic_approved", False)
+        verified_positive_hcc_entries = [
+            entry
+            for entry in hcc_ledger
+            if isinstance(entry, dict)
+            and entry.get("polarity") == "positive"
+            and entry.get("evidence_paths")
+            and (not entry.get("attacked", False) or entry.get("survived_attack", False))
         ]
-        allow_positive_transfer = bool(result_artifacts) and bool(approved_rounds)
+        allow_positive_transfer = bool(verified_positive_hcc_entries)
+
+        if hcc_ledger:
+            cards.extend(self._extract_cards_from_hcc_ledger(signature, hcc_ledger, allow_positive_transfer))
 
         current_best = self._extract_current_best(plan)
         if current_best and allow_positive_transfer:
@@ -402,10 +417,15 @@ class L3MemoryStore:
                     applicability="用于下游任务的初始假设和结构先验。",
                     confidence=0.65,
                     source="plan.md",
+                    polarity="positive",
+                    producer_role="hamilton",
+                    consumer_scope="both",
+                    survived_attack=True,
+                    evidence_strength=0.8,
                 )
             )
 
-        if findings:
+        if findings and allow_positive_transfer:
             insight_lines = [line.strip("- ").strip() for line in findings.splitlines() if line.startswith("- ")]
             if insight_lines:
                 cards.append(
@@ -417,6 +437,11 @@ class L3MemoryStore:
                         applicability="用于约束跨任务验证 checklist。",
                         confidence=0.55,
                         source="findings.md",
+                        polarity="positive",
+                        producer_role="system",
+                        consumer_scope="both",
+                        survived_attack=allow_positive_transfer,
+                        evidence_strength=0.55,
                     )
                 )
 
@@ -440,11 +465,16 @@ class L3MemoryStore:
                         confidence=0.7 if role in {"core", "redundant", "proxy", "spurious"} else 0.55,
                         source="variable_memory.json",
                         negative_evidence="；".join(str(note) for note in notes[:3]),
+                        polarity="positive",
+                        producer_role="hamilton",
+                        consumer_scope="both",
+                        survived_attack=allow_positive_transfer,
+                        evidence_strength=0.75 if role in {"core", "redundant", "proxy", "spurious"} else 0.55,
                     )
                 )
 
         strategy_history = routing_state.get("strategy_history", []) if isinstance(routing_state, dict) else []
-        if strategy_history:
+        if strategy_history and allow_positive_transfer:
             strategy_preview = []
             for item in strategy_history[-3:]:
                 if isinstance(item, dict):
@@ -462,6 +492,11 @@ class L3MemoryStore:
                     applicability="用于新任务的轮级 tool router 初始化。",
                     confidence=0.6,
                     source="routing_state.json",
+                    polarity="positive",
+                    producer_role="hamilton",
+                    consumer_scope="hamilton",
+                    survived_attack=allow_positive_transfer,
+                    evidence_strength=0.6,
                 )
             )
 
@@ -482,6 +517,11 @@ class L3MemoryStore:
                         applicability="用于新任务的结构先验和 operator motif 候选。",
                         confidence=0.55,
                         source="hypothesis_archive.jsonl",
+                        polarity="positive",
+                        producer_role="hamilton",
+                        consumer_scope="both",
+                        survived_attack=allow_positive_transfer,
+                        evidence_strength=0.7,
                     )
                 )
 
@@ -498,6 +538,11 @@ class L3MemoryStore:
                     confidence=0.7,
                     source="falsification_log.jsonl",
                     negative_evidence=item.get("rejection_reason", ""),
+                    polarity="negative",
+                    producer_role="hamilton",
+                    consumer_scope="both",
+                    survived_attack=False,
+                    evidence_strength=0.75,
                 )
             )
 
@@ -515,6 +560,11 @@ class L3MemoryStore:
                     confidence=0.8,
                     source=DEBATE_STATE_FILE,
                     negative_evidence=item.get("blocking_reason", ""),
+                    polarity="negative",
+                    producer_role="critic",
+                    consumer_scope="both",
+                    survived_attack=False,
+                    evidence_strength=0.8,
                 )
             )
 
@@ -547,6 +597,11 @@ class L3MemoryStore:
         confidence: float,
         source: str,
         negative_evidence: str = "",
+        polarity: str = "positive",
+        producer_role: str = "system",
+        consumer_scope: str = "both",
+        survived_attack: bool = False,
+        evidence_strength: float | None = None,
     ) -> dict[str, Any]:
         keywords = _normalize_tokens(title, summary, applicability, negative_evidence)
         raw = f"{signature.task_hash}|{card_type}|{title}|{summary}|{source}"
@@ -561,6 +616,11 @@ class L3MemoryStore:
             "applicability": applicability[:400],
             "negative_evidence": negative_evidence[:400],
             "confidence": round(max(0.0, min(confidence, 1.0)), 3),
+            "polarity": "negative" if polarity == "negative" else "positive",
+            "producer_role": producer_role,
+            "consumer_scope": consumer_scope,
+            "survived_attack": bool(survived_attack),
+            "evidence_strength": round(max(0.0, min(float(evidence_strength if evidence_strength is not None else confidence), 1.0)), 3),
             "domain_tags": signature.domain_tags,
             "objective_tags": signature.objective_tags,
             "data_tags": signature.data_tags,
@@ -569,6 +629,46 @@ class L3MemoryStore:
             "retrieval_mode": self.retrieval_mode,
             "created_at": _utc_now(),
         }
+
+    def _extract_cards_from_hcc_ledger(
+        self,
+        signature: TaskSignature,
+        ledger_entries: list[dict[str, Any]],
+        allow_positive_transfer: bool,
+    ) -> list[dict[str, Any]]:
+        cards: list[dict[str, Any]] = []
+        for entry in ledger_entries:
+            if not isinstance(entry, dict):
+                continue
+            polarity = "negative" if entry.get("polarity") == "negative" else "positive"
+            attacked = bool(entry.get("attacked", False))
+            survived_attack = bool(entry.get("survived_attack", False))
+            if polarity == "positive":
+                if not allow_positive_transfer:
+                    continue
+                if not entry.get("evidence_paths"):
+                    continue
+                if attacked and not survived_attack:
+                    continue
+            card_type = entry.get("card_type") or ("failure_card" if polarity == "negative" else "domain_prior")
+            cards.append(
+                self._build_card(
+                    signature,
+                    card_type=card_type,
+                    title=entry.get("title", "HCC 经验"),
+                    summary=entry.get("summary", ""),
+                    applicability="来自共享 HCC ledger 的跨任务迁移经验。",
+                    confidence=float(entry.get("evidence_strength", entry.get("confidence", 0.6)) or 0.6),
+                    source=entry.get("source", HCC_LEDGER_FILE),
+                    negative_evidence=entry.get("negative_evidence", ""),
+                    polarity=polarity,
+                    producer_role=str(entry.get("producer_role", "system")),
+                    consumer_scope=str(entry.get("consumer_scope", "both")),
+                    survived_attack=survived_attack,
+                    evidence_strength=float(entry.get("evidence_strength", 0.6) or 0.6),
+                )
+            )
+        return cards
 
     def _extract_current_best(self, plan_text: str) -> str:
         from .constants import CURRENT_BEST_BEGIN, CURRENT_BEST_END

@@ -63,7 +63,11 @@ agents:
       - evo-protocol
 
     tools:
-      builtin: ["*"]
+      builtin:
+        - "execute_bash"
+        - "str_replace_editor"
+        - "think"
+        - "finish"
 
 # ============================================
 # Session 配置
@@ -96,6 +100,16 @@ memory:
     promotion_policy: "task_end_only"
 
 critic_policy:
+  schedule_mode: "hybrid"
+  periodic_every_n_rounds: 3
+  immediate_triggers:
+    - "hamilton_finish_true"
+    - "new_results_artifact"
+    - "quantified_result_claim"
+    - "strong_conclusion_text"
+    - "challenge_response"
+  execution_mode: "light_self_execute"
+  max_interventions_per_round: 2
   report_md_name: "critic_report.md"
   report_json_name: "critic_report.json"
 

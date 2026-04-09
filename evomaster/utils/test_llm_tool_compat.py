@@ -47,6 +47,23 @@ class TestCompatibleToolCallParsing(unittest.TestCase):
             {"message": "done", "task_completed": "false"},
         )
 
+    def test_recovers_slash_prefixed_finish_call(self):
+        content = '{"name":"functions/finish","arguments":{"message":"done","task_completed":"false"}}'
+
+        tool_calls, fully_consumed = parse_compatible_tool_calls(
+            content,
+            {"finish", "execute_bash"},
+        )
+
+        self.assertTrue(fully_consumed)
+        self.assertIsNotNone(tool_calls)
+        self.assertEqual(len(tool_calls), 1)
+        self.assertEqual(tool_calls[0].function.name, "finish")
+        self.assertEqual(
+            json.loads(tool_calls[0].function.arguments),
+            {"message": "done", "task_completed": "false"},
+        )
+
     def test_ignores_unknown_tool_names(self):
         content = '{"name":"functions.unknown_tool","arguments":{"x":1}}'
 
@@ -82,6 +99,84 @@ class TestCompatibleToolCallParsing(unittest.TestCase):
                 "old_str": "",
                 "new_str": "",
             },
+        )
+
+    def test_recovers_mixed_think_and_multiline_bash_fragments(self):
+        content = """{"name":"functions.think","arguments":{"thought":"attack this claim"}}
+{"command":"mkdir -p history/round3/critic_attacks/results"}
+{"command":"python3 - << 'PY'
+print(1)
+PY"}"""
+
+        tool_calls, fully_consumed = parse_compatible_tool_calls(
+            content,
+            {"think", "execute_bash", "finish"},
+        )
+
+        self.assertTrue(fully_consumed)
+        self.assertIsNotNone(tool_calls)
+        self.assertEqual(
+            [tc.function.name for tc in tool_calls],
+            ["think", "execute_bash", "execute_bash"],
+        )
+        self.assertIn("mkdir -p", json.loads(tool_calls[1].function.arguments)["command"])
+        self.assertIn("python3 - << 'PY'", json.loads(tool_calls[2].function.arguments)["command"])
+
+    def test_recovers_nested_finish_wrapper(self):
+        content = '{"finish":{"message":"wrapped done","task_completed":"false"}}'
+
+        tool_calls, fully_consumed = parse_compatible_tool_calls(
+            content,
+            {"finish", "str_replace_editor"},
+        )
+
+        self.assertTrue(fully_consumed)
+        self.assertIsNotNone(tool_calls)
+        self.assertEqual(len(tool_calls), 1)
+        self.assertEqual(tool_calls[0].function.name, "finish")
+        self.assertEqual(
+            json.loads(tool_calls[0].function.arguments),
+            {"message": "wrapped done", "task_completed": "false"},
+        )
+
+    def test_unwraps_finish_nested_inside_execute_bash_wrapper(self):
+        content = (
+            '{"name":"execute_bash","arguments":'
+            '{"command":"finish","params":{"message":"wrapped via bash","task_completed":"false"}}}'
+        )
+
+        tool_calls, fully_consumed = parse_compatible_tool_calls(
+            content,
+            {"finish", "execute_bash"},
+        )
+
+        self.assertTrue(fully_consumed)
+        self.assertIsNotNone(tool_calls)
+        self.assertEqual(len(tool_calls), 1)
+        self.assertEqual(tool_calls[0].function.name, "finish")
+        self.assertEqual(
+            json.loads(tool_calls[0].function.arguments),
+            {"message": "wrapped via bash", "task_completed": "false"},
+        )
+
+    def test_flattens_execute_bash_nested_inside_execute_bash_wrapper(self):
+        content = (
+            '{"name":"execute_bash","arguments":'
+            '{"command":"execute_bash","params":{"command":"python lib/fit_viv_analytic.py --input-dir input"}}}'
+        )
+
+        tool_calls, fully_consumed = parse_compatible_tool_calls(
+            content,
+            {"finish", "execute_bash"},
+        )
+
+        self.assertTrue(fully_consumed)
+        self.assertIsNotNone(tool_calls)
+        self.assertEqual(len(tool_calls), 1)
+        self.assertEqual(tool_calls[0].function.name, "execute_bash")
+        self.assertEqual(
+            json.loads(tool_calls[0].function.arguments),
+            {"command": "python lib/fit_viv_analytic.py --input-dir input"},
         )
 
 

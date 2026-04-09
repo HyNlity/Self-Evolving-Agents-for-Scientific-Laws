@@ -22,6 +22,9 @@ class TestTaskContract(unittest.TestCase):
         self.assertEqual(bundle.contract["protocol"]["evidence_policy"], "advisory")
         self.assertEqual(bundle.contract["protocol"]["review_focus"], [])
         self.assertEqual(bundle.contract["protocol"]["required_evidence"], {})
+        self.assertEqual(bundle.contract["protocol"]["evaluation_profile"], "auto")
+        self.assertEqual(bundle.contract["protocol"]["evaluation_metrics"], [])
+        self.assertEqual(bundle.contract["protocol"]["paper_rubric_sources"], [])
         self.assertFalse(bundle.contract["meta"]["has_front_matter"])
 
     def test_valid_front_matter_is_normalized(self) -> None:
@@ -33,6 +36,9 @@ class TestTaskContract(unittest.TestCase):
             "  required_evidence:\n"
             "    fit: [script, result, trace_metrics]\n"
             "    falsification: trace_falsification\n"
+            "  evaluation_profile: dynamics_identification\n"
+            "  evaluation_metrics: [support_set_stability, rollout_stability]\n"
+            "  paper_rubric_sources: [paper/README_CN.md]\n"
             "---\n"
             "# 任务\n\n请发现方程。\n"
         )
@@ -46,6 +52,12 @@ class TestTaskContract(unittest.TestCase):
             bundle.contract["protocol"]["required_evidence"]["falsification"],
             ["trace_falsification"],
         )
+        self.assertEqual(bundle.contract["protocol"]["evaluation_profile"], "dynamics_identification")
+        self.assertEqual(
+            bundle.contract["protocol"]["evaluation_metrics"],
+            ["support_set_stability", "rollout_stability"],
+        )
+        self.assertEqual(bundle.contract["protocol"]["paper_rubric_sources"], ["paper/README_CN.md"])
         self.assertTrue(bundle.contract["meta"]["has_front_matter"])
         self.assertEqual(bundle.contract["meta"]["parse_errors"], [])
 

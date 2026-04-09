@@ -2,8 +2,15 @@
 本轮工作目录：history/round{input_data[round]}/（已由系统创建，脚本放 scripts/，结果放 results/）
 任务契约策略：{input_data[task_contract_policy]}
 任务审查重点：{input_data[task_review_focus]}
-优先阅读：task_contract.json、l3_context.md、critic_context.md、debate_state.json，以及本轮的 critic_report（如果前一轮已有）
+当前主路由：{input_data[current_strategy]}
+当前焦点：{input_data[current_focus]}
+本轮主结果工件：{input_data[primary_artifact]}
+当前阶段输入工件：{input_data[stage_input_artifact]}
+建议先执行：`{input_data[recommended_command]}`
+当前阶段结果是否缺失：{input_data[stage_artifact_missing]}
+优先阅读：task_contract.json、evaluation_context.json、hcc_ledger.jsonl、critic_scheduler_state.json、l3_context.md、critic_context.md、debate_state.json，以及本轮的 critic_report（如果前一轮已有）
 路径提醒：优先使用当前真实工作目录下的相对路径；如果不确定，先 `execute_bash pwd` 或 `ls`
+执行顺序提醒：如果“当前阶段结果是否缺失”为 `true`，那么本轮第一次非读取、非查看类工具调用应优先执行上面的建议命令，而不是先扩写 `plan.md`、`findings.md` 或重写已有 state 文件。
 
 ## 任务
 {description}

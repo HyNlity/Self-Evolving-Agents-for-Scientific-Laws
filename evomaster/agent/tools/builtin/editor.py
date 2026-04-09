@@ -5,6 +5,7 @@
 
 from __future__ import annotations
 
+import json
 import re
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, ClassVar, Literal
@@ -31,6 +32,8 @@ DIRECTORY_TRUNCATED_NOTICE = (
 # 每次编辑显示的上下文行数
 SNIPPET_LINES = 4
 MAX_OUTPUT_SIZE = 16000
+VIEW_NUMBER_PREFIX_RE = re.compile(r"^\s*\d+\t")
+OVERWRITABLE_SCAFFOLD_MARKER = "EVO_SCAFFOLD_OVERWRITABLE"
 
 
 def maybe_truncate(content: str, max_size: int = MAX_OUTPUT_SIZE, notice: str = TEXT_FILE_TRUNCATED_NOTICE) -> str:
@@ -114,7 +117,7 @@ class EditorTool(BaseTool):
     def execute(self, session: BaseSession, args_json: str) -> tuple[str, dict[str, Any]]:
         """执行编辑操作"""
         try:
-            params = self.parse_params(args_json)
+            params = self.parse_params(self._normalize_payload(args_json))
         except Exception as e:
             return f"Parameter validation error: {str(e)}", {"error": str(e)}
         
@@ -140,6 +143,30 @@ class EditorTool(BaseTool):
         except ToolError as e:
             return f"ERROR:\n{str(e)}", {"error": str(e)}
 
+    def _normalize_payload(self, args_json: str) -> str:
+        """Recover common gateway/model wrapper forms for str_replace_editor."""
+        try:
+            payload = json.loads(args_json)
+        except Exception:
+            return args_json
+        if not isinstance(payload, dict):
+            return args_json
+
+        command = payload.get("command")
+        if isinstance(command, str):
+            stripped = command.strip()
+            for prefix in ("str_replace_editor", "editor"):
+                if stripped == prefix:
+                    break
+                if stripped.startswith(prefix + " "):
+                    payload["command"] = stripped[len(prefix) + 1 :].strip()
+                    break
+                if stripped.startswith(prefix + "."):
+                    payload["command"] = stripped[len(prefix) + 1 :].strip()
+                    break
+
+        return json.dumps(payload, ensure_ascii=False)
+
     def _resolve_workspace_root(self, session: BaseSession) -> str | None:
         """解析当前会话的真实工作空间根目录。"""
         get_workspace_path = getattr(session, "get_workspace_path", None)
@@ -155,19 +182,58 @@ class EditorTool(BaseTool):
         return None
 
     def _normalize_workspace_alias(self, session: BaseSession, path: str) -> str:
-        """把通用 `/workspace/...` 别名映射到当前会话的真实工作空间。"""
+        """把通用 `/workspace/...` 别名或 workspace 内相对路径映射到真实工作空间。"""
+        workspace_root = self._resolve_workspace_root(session)
         if not Path(path).is_absolute():
+            if not workspace_root:
+                return path
+            workspace_path = Path(workspace_root).resolve()
+            candidate = (workspace_path / path).resolve()
+            if candidate == workspace_path or workspace_path in candidate.parents:
+                return str(candidate)
             return path
 
-        workspace_root = self._resolve_workspace_root(session)
         if not workspace_root or workspace_root == "/workspace":
             return path
+
+        repaired_absolute = self._repair_workspace_absolute_path(workspace_root, path)
+        if repaired_absolute != path:
+            return repaired_absolute
 
         if path == "/workspace":
             return workspace_root
         if path.startswith("/workspace/"):
             relative_part = path.removeprefix("/workspace/")
             return str(Path(workspace_root) / relative_part)
+        return path
+
+    def _repair_workspace_absolute_path(self, workspace_root: str, path: str) -> str:
+        """恢复被错误拼接过前缀的绝对路径。
+
+        常见情况是模型把真实绝对路径又相对当前目录拼接了一次，导致类似
+        `/home/.../SRAgent/SRAgent/repo/.../task_0/...` 这样的路径。只要能在目标
+        路径里重新找到当前 workspace 的后缀，就优先恢复成真实 workspace 前缀。
+        """
+        workspace_path = Path(workspace_root).resolve()
+        target_path = Path(path)
+        if not target_path.is_absolute():
+            return path
+        if target_path == workspace_path or workspace_path in target_path.parents:
+            return path
+
+        incoming_parts = target_path.parts
+        workspace_parts = workspace_path.parts
+        for start in range(len(workspace_parts)):
+            suffix = workspace_parts[start:]
+            suffix_len = len(suffix)
+            if not suffix:
+                continue
+            for index in range(len(incoming_parts) - suffix_len + 1):
+                if incoming_parts[index : index + suffix_len] != suffix:
+                    continue
+                recovered = Path(*workspace_parts[:start], *incoming_parts[index:])
+                if recovered == workspace_path or workspace_path in recovered.parents:
+                    return str(recovered)
         return path
 
     def _validate_path(
@@ -205,12 +271,14 @@ class EditorTool(BaseTool):
         
         # 对于 create 命令，需要更严格的检查
         if command == "create":
+            overwritable_scaffold = self._is_overwritable_scaffold(session, path)
             # 再次确认路径不存在（防止误判）
             if session.is_file(path):
-                raise ToolParameterError("path", path, f"File already exists at: {path}. Cannot overwrite files using command `create`.")
+                if not overwritable_scaffold:
+                    raise ToolParameterError("path", path, f"File already exists at: {path}. Cannot overwrite files using command `create`.")
             if session.is_directory(path):
                 raise ToolParameterError("path", path, f"The path {path} is a directory. Cannot create a file with the same name as a directory.")
-            if session.path_exists(path):
+            if session.path_exists(path) and not overwritable_scaffold:
                 # 路径存在但不是文件也不是目录，可能是其他类型（如符号链接）
                 raise ToolParameterError("path", path, f"Path already exists at: {path}. Cannot overwrite using command `create`.")
         
@@ -218,6 +286,24 @@ class EditorTool(BaseTool):
             raise ToolParameterError("path", path, f"The path {path} is a directory and only the `view` command can be used on directories.")
         
         return path_type
+
+    def _is_overwritable_scaffold(self, session: BaseSession, path: str) -> bool:
+        """允许系统标记为 scaffold 的文件被 `create` 覆盖。"""
+        if not session.is_file(path):
+            return False
+        try:
+            content = session.read_file(path)
+        except Exception:
+            return False
+        if OVERWRITABLE_SCAFFOLD_MARKER in content:
+            return True
+        if not content.strip():
+            return True
+        try:
+            payload = json.loads(content)
+        except Exception:
+            return False
+        return isinstance(payload, dict) and bool(payload.get("__placeholder__"))
 
     def _view(
         self,
@@ -270,9 +356,51 @@ class EditorTool(BaseTool):
 
     def _create(self, session: BaseSession, path: str, file_text: str) -> tuple[str, dict[str, Any]]:
         """创建文件"""
+        previous_content = None
+        if session.is_file(path):
+            previous_content = session.read_file(path)
         session.write_file(path, file_text)
+        history = self._file_history.setdefault(path, [])
+        if previous_content is not None:
+            history.append((previous_content, "utf-8"))
+            return f"Scaffold file overwritten successfully at: {path}", {}
         self._file_history[path] = [(file_text, "utf-8")]
         return f"File created successfully at: {path}", {}
+
+    def _strip_view_number_prefixes(self, text: str) -> str:
+        """移除 `view` / `cat -n` 输出中的行号前缀。"""
+        lines = text.split("\n")
+        normalized = [VIEW_NUMBER_PREFIX_RE.sub("", line) for line in lines]
+        return "\n".join(normalized)
+
+    def _candidate_replacements(self, old_str: str, new_str: str) -> list[tuple[str, str]]:
+        """为 str_replace 生成一组更稳健的匹配候选。"""
+        candidates: list[tuple[str, str]] = []
+
+        def add_candidate(old_value: str, new_value: str) -> None:
+            pair = (old_value, new_value)
+            if not old_value:
+                return
+            if pair not in candidates:
+                candidates.append(pair)
+
+        add_candidate(old_str, new_str)
+
+        stripped_old = old_str.strip()
+        stripped_new = new_str.strip()
+        if stripped_old:
+            add_candidate(stripped_old, stripped_new)
+
+        denumbered_old = self._strip_view_number_prefixes(old_str)
+        denumbered_new = self._strip_view_number_prefixes(new_str)
+        if denumbered_old != old_str:
+            add_candidate(denumbered_old, denumbered_new)
+            stripped_denumbered_old = denumbered_old.strip()
+            stripped_denumbered_new = denumbered_new.strip()
+            if stripped_denumbered_old:
+                add_candidate(stripped_denumbered_old, stripped_denumbered_new)
+
+        return candidates
 
     def _str_replace(
         self,
@@ -286,36 +414,39 @@ class EditorTool(BaseTool):
             raise ToolParameterError("new_str", new_str, "No replacement was performed. `new_str` and `old_str` must be different.")
         
         content = session.read_file(path)
-        
-        # 查找所有匹配
-        pattern = re.escape(old_str)
-        matches = list(re.finditer(pattern, content))
-        
+
+        matches: list[re.Match[str]] = []
+        selected_old = old_str
+        selected_new = new_str
+
+        for candidate_old, candidate_new in self._candidate_replacements(old_str, new_str):
+            pattern = re.escape(candidate_old)
+            candidate_matches = list(re.finditer(pattern, content))
+            if not candidate_matches:
+                continue
+            if candidate_old == candidate_new:
+                raise ToolParameterError(
+                    "new_str",
+                    new_str,
+                    "No replacement was performed. `new_str` and `old_str` must be different.",
+                )
+            selected_old = candidate_old
+            selected_new = candidate_new
+            matches = candidate_matches
+            break
+
         if not matches:
-            # 尝试 strip 后重试
-            old_str_stripped = old_str.strip()
-            new_str_stripped = (new_str or "").strip()
-            pattern = re.escape(old_str_stripped)
-            matches = list(re.finditer(pattern, content))
-            
-            if matches:
-                # 检查 strip 后是否相同
-                if old_str_stripped == new_str_stripped:
-                    raise ToolParameterError("new_str", new_str, "No replacement was performed. `new_str` and `old_str` must be different (after stripping whitespace).")
-                old_str = old_str_stripped
-                new_str = new_str_stripped
-            else:
-                raise ToolError(f"No replacement was performed, old_str did not appear verbatim in {path}.")
-        
+            raise ToolError(f"No replacement was performed, old_str did not appear verbatim in {path}.")
+
         if len(matches) > 1:
             # 计算行号
             line_numbers = sorted(set(content.count("\n", 0, m.start()) + 1 for m in matches))
             raise ToolError(f"No replacement was performed. Multiple occurrences of old_str in lines {line_numbers}. Please ensure it is unique.")
-        
+
         # 执行替换
         match = matches[0]
         replacement_line = content.count("\n", 0, match.start()) + 1
-        new_content = content[:match.start()] + new_str + content[match.end():]
+        new_content = content[:match.start()] + selected_new + content[match.end():]
         
         # 保存历史并写入
         if path not in self._file_history:
@@ -325,7 +456,7 @@ class EditorTool(BaseTool):
         
         # 创建代码片段
         start_line = max(0, replacement_line - SNIPPET_LINES)
-        end_line = replacement_line + SNIPPET_LINES + new_str.count("\n") + 1
+        end_line = replacement_line + SNIPPET_LINES + selected_new.count("\n") + 1
         snippet = "\n".join(new_content.split("\n")[start_line:end_line + 1])
         
         msg = f"The file {path} has been edited. "

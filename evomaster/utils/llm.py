@@ -125,7 +125,7 @@ def _strip_code_fence(content: str) -> str:
 def _normalize_tool_name(name: str) -> str:
     """把 functions.finish 这类名称归一化为 finish。"""
     normalized = (name or "").strip()
-    prefixes = ("functions.", "function.", "tools.", "tool.")
+    prefixes = ("functions.", "function.", "tools.", "tool.", "functions/", "function/", "tools/", "tool/")
     changed = True
     while changed:
         changed = False
@@ -165,6 +165,23 @@ def _collect_tool_payloads(payload: Any) -> list[dict[str, Any]]:
             }
         )
 
+    if not collected and len(payload) == 1:
+        name, arguments = next(iter(payload.items()))
+        normalized_name = _normalize_tool_name(str(name))
+        if normalized_name and normalized_name not in {
+            "tool_calls",
+            "function",
+            "name",
+            "arguments",
+            "command",
+            "path",
+            "action",
+        }:
+            if isinstance(arguments, dict):
+                collected.append({"name": normalized_name, "arguments": arguments})
+            elif isinstance(arguments, str):
+                collected.append({"name": normalized_name, "arguments": arguments})
+
     return collected
 
 
@@ -201,6 +218,125 @@ def _infer_tool_name_from_arguments(
     return None
 
 
+def _unwrap_nested_tool_wrapper(
+    normalized_name: str,
+    arguments_payload: Any,
+    available_tool_names: set[str] | None = None,
+) -> tuple[str, Any]:
+    """兼容把真实工具错误包在 execute_bash(command=<tool>, params=...) 里的网关返回。"""
+    available = available_tool_names or set()
+    if normalized_name != "execute_bash" or not isinstance(arguments_payload, dict):
+        return normalized_name, arguments_payload
+
+    nested_name = _normalize_tool_name(str(arguments_payload.get("command", "")))
+    nested_params = arguments_payload.get("params")
+    if (
+        nested_name
+        and isinstance(nested_params, dict)
+        and (not available or nested_name in available)
+    ):
+        return nested_name, nested_params
+
+    return normalized_name, arguments_payload
+
+
+def _escape_control_chars_in_json_strings(text: str) -> str:
+    """Escape raw control chars inside JSON strings.
+
+    Some compatible gateways leak bare newlines/tabs into string fields such as
+    execute_bash.command, which makes the whole JSON blob invalid. We repair only
+    characters that appear inside quoted strings.
+    """
+    escaped_chars: list[str] = []
+    in_string = False
+    escaped = False
+
+    for ch in text:
+        if in_string:
+            if escaped:
+                escaped_chars.append(ch)
+                escaped = False
+                continue
+            if ch == "\\":
+                escaped_chars.append(ch)
+                escaped = True
+                continue
+            if ch == '"':
+                escaped_chars.append(ch)
+                in_string = False
+                continue
+            if ch == "\n":
+                escaped_chars.append("\\n")
+                continue
+            if ch == "\r":
+                escaped_chars.append("\\r")
+                continue
+            if ch == "\t":
+                escaped_chars.append("\\t")
+                continue
+            escaped_chars.append(ch)
+            continue
+
+        escaped_chars.append(ch)
+        if ch == '"':
+            in_string = True
+
+    return "".join(escaped_chars)
+
+
+def _split_top_level_json_values(text: str) -> list[tuple[int, int, str]]:
+    """Split concatenated top-level JSON values permissively.
+
+    This is more tolerant than `json.JSONDecoder.raw_decode` when a later JSON
+    object is malformed. We still recover earlier complete values, and we also
+    support multiline strings that need post-repair.
+    """
+    values: list[tuple[int, int, str]] = []
+    depth = 0
+    start: int | None = None
+    in_string = False
+    escaped = False
+
+    for index, ch in enumerate(text):
+        if in_string:
+            if escaped:
+                escaped = False
+            elif ch == "\\":
+                escaped = True
+            elif ch == '"':
+                in_string = False
+            continue
+
+        if ch == '"':
+            in_string = True
+            continue
+
+        if ch in "{[":
+            if depth == 0:
+                start = index
+            depth += 1
+            continue
+
+        if ch in "}]":
+            if depth == 0:
+                continue
+            depth -= 1
+            if depth == 0 and start is not None:
+                values.append((start, index + 1, text[start:index + 1]))
+                start = None
+
+    return values
+
+
+def _decode_json_fragment(fragment: str) -> Any | None:
+    for candidate in (fragment, _escape_control_chars_in_json_strings(fragment)):
+        try:
+            return json.loads(candidate)
+        except JSONDecodeError:
+            continue
+    return None
+
+
 def parse_compatible_tool_calls(
     content: str | None,
     available_tool_names: set[str] | None = None,
@@ -219,6 +355,7 @@ def parse_compatible_tool_calls(
     index = 0
     raw_payloads: list[Any] = []
     parsed_any = False
+    strict_success = True
 
     while True:
         while index < len(text) and text[index] in " \t\r\n,":
@@ -229,16 +366,35 @@ def parse_compatible_tool_calls(
         try:
             payload, next_index = decoder.raw_decode(text, index)
         except JSONDecodeError:
-            if not parsed_any:
-                return None, False
-            return None, False
+            strict_success = False
+            break
 
         raw_payloads.append(payload)
         parsed_any = True
         index = next_index
 
-    if not raw_payloads:
-        return None, False
+    fully_consumed = strict_success and text[index:].strip(" \t\r\n,") == ""
+    if not raw_payloads or not strict_success:
+        spans = _split_top_level_json_values(text)
+        salvaged_payloads: list[Any] = []
+        for _, _, fragment in spans:
+            payload = _decode_json_fragment(fragment)
+            if payload is not None:
+                salvaged_payloads.append(payload)
+        raw_payloads = salvaged_payloads
+        if not raw_payloads:
+            return None, False
+
+        if spans:
+            last_end = 0
+            leftovers: list[str] = []
+            for start, end, _ in spans:
+                leftovers.append(text[last_end:start])
+                last_end = end
+            leftovers.append(text[last_end:])
+            fully_consumed = all(not segment.strip(" \t\r\n,") for segment in leftovers)
+        else:
+            fully_consumed = False
 
     tool_calls: list[ToolCall] = []
     for payload in raw_payloads:
@@ -254,6 +410,11 @@ def parse_compatible_tool_calls(
                 if inferred_name:
                     normalized_name = inferred_name
                     arguments_payload = item
+            normalized_name, arguments_payload = _unwrap_nested_tool_wrapper(
+                normalized_name,
+                arguments_payload,
+                available_tool_names,
+            )
             if not normalized_name:
                 continue
             if available_tool_names and normalized_name not in available_tool_names:
@@ -280,9 +441,6 @@ def parse_compatible_tool_calls(
 
     if not tool_calls:
         return None, False
-
-    trailing = text[index:].strip(" \t\r\n,")
-    fully_consumed = trailing == ""
     return tool_calls, fully_consumed
 
 

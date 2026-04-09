@@ -26,6 +26,11 @@ class TestHamiltonWorkspaceAssets(unittest.TestCase):
         nested.mkdir(parents=True, exist_ok=True)
         (nested / "extra.csv").write_text("id,value\n1,2\n", encoding="utf-8")
 
+        lib_dir = self.workspace_root / "lib"
+        lib_dir.mkdir(parents=True, exist_ok=True)
+        (lib_dir / "README.md").write_text("# lib\n", encoding="utf-8")
+        (lib_dir / "fit_viv_analytic.py").write_text("print('fit')\n", encoding="utf-8")
+
         self.runtime_workspace = self.tmpdir / "runtime_workspace"
         self.runtime_workspace.mkdir(parents=True, exist_ok=True)
 
@@ -41,10 +46,13 @@ class TestHamiltonWorkspaceAssets(unittest.TestCase):
 
         copied_train = self.runtime_workspace / "input" / "U248_train.csv"
         copied_nested = self.runtime_workspace / "input" / "subdir" / "extra.csv"
+        copied_lib = self.runtime_workspace / "lib" / "fit_viv_analytic.py"
         self.assertTrue(copied_train.exists())
         self.assertTrue(copied_nested.exists())
+        self.assertTrue(copied_lib.exists())
         self.assertEqual(copied_train.read_text(encoding="utf-8"), "t,x,v,a\n0,0,0,0\n")
         self.assertEqual(summary["input"]["files_copied"], 2)
+        self.assertEqual(summary["lib"]["files_copied"], 2)
 
     def test_materialize_workspace_assets_overwrites_stale_file(self) -> None:
         stale_target = self.runtime_workspace / "input" / "U248_train.csv"

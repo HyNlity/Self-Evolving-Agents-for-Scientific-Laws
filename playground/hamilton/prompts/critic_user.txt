@@ -6,12 +6,26 @@ Hamilton 是否声称已完成：{input_data[hamilton_task_completed]}
 Challenge taxonomy：{input_data[challenge_taxonomy]}
 任务契约策略：{input_data[task_contract_policy]}
 任务审查重点：{input_data[task_review_focus]}
+Critic 调度原因：{input_data[critic_schedule_reasons]}
+Critic 执行模式：{input_data[critic_execution_mode]}
+本轮最多 intervention 数：{input_data[critic_max_interventions]}
 
 你必须至少审查以下路径：
 - task_contract.json
+- {input_data[evaluation_context_file]}
+- {input_data[hcc_ledger_file]}
+- {input_data[critic_scheduler_state_file]}
 - {input_data[trace_file]}
+- {input_data[critic_attack_plan_json]}
+- {input_data[critic_attack_log_jsonl]}
+
+你必须把本轮审查结果写回这些输出路径：
 - {input_data[critic_report_md]}
 - {input_data[critic_report_json]}
+- {input_data[critic_attack_plan_json]}
+- {input_data[critic_attack_log_jsonl]}
+
+如果这些输出文件已经存在，把它们视为需要用本轮真实结果覆盖的旧内容，而不是默认可信的输入证据。
 
 ## 审查任务
 {description}

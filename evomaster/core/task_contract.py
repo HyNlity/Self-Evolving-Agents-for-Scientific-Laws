@@ -13,6 +13,7 @@ import yaml
 TASK_CONTRACT_FILE = "task_contract.json"
 DEFAULT_EVIDENCE_POLICY = "advisory"
 ALLOWED_EVIDENCE_POLICIES = {"advisory", "blocking"}
+DEFAULT_EVALUATION_PROFILE = "auto"
 FRONT_MATTER_RE = re.compile(r"^---\s*\n(.*?)\n---\s*(?:\n|$)", re.DOTALL)
 
 
@@ -46,6 +47,9 @@ def default_task_contract() -> dict[str, Any]:
             "evidence_policy": DEFAULT_EVIDENCE_POLICY,
             "review_focus": [],
             "required_evidence": {},
+            "evaluation_profile": DEFAULT_EVALUATION_PROFILE,
+            "evaluation_metrics": [],
+            "paper_rubric_sources": [],
         },
         "meta": {
             "has_front_matter": False,
@@ -81,6 +85,9 @@ def normalize_task_contract(frontmatter: dict[str, Any] | None) -> dict[str, Any
         evidence_policy = DEFAULT_EVIDENCE_POLICY
 
     review_focus = _normalize_str_list(protocol.get("review_focus", []))
+    evaluation_profile = str(protocol.get("evaluation_profile", DEFAULT_EVALUATION_PROFILE)).strip() or DEFAULT_EVALUATION_PROFILE
+    evaluation_metrics = _normalize_str_list(protocol.get("evaluation_metrics", []))
+    paper_rubric_sources = _normalize_str_list(protocol.get("paper_rubric_sources", []))
 
     raw_required_evidence = protocol.get("required_evidence", {})
     normalized_required_evidence: dict[str, list[str]] = {}
@@ -102,6 +109,9 @@ def normalize_task_contract(frontmatter: dict[str, Any] | None) -> dict[str, Any
         "evidence_policy": evidence_policy,
         "review_focus": review_focus,
         "required_evidence": normalized_required_evidence,
+        "evaluation_profile": evaluation_profile,
+        "evaluation_metrics": evaluation_metrics,
+        "paper_rubric_sources": paper_rubric_sources,
     }
     contract["meta"] = {
         "has_front_matter": True,

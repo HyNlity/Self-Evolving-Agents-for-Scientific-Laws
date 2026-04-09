@@ -22,14 +22,19 @@ from evomaster.core.task_contract import TASK_CONTRACT_FILE
 
 from .constants import (
     CRITIC_CONTEXT_FILE,
+    CRITIC_SCHEDULER_STATE_FILE,
     CURRENT_BEST_BEGIN,
     CURRENT_BEST_END,
     DEBATE_STATE_FILE,
     ENV_CAPABILITIES_FILE,
+    EVALUATION_CONTEXT_FILE,
+    EVALUATION_CONTEXT_MD,
+    HCC_LEDGER_FILE,
     L3_CONTEXT_FILE,
     STRATEGY_QUEUE_BEGIN,
     STRATEGY_QUEUE_END,
 )
+from .evaluation import build_evaluation_context, materialize_evaluation_context
 from .exp import RoundExp
 from .l3 import L3MemoryStore
 
@@ -42,7 +47,7 @@ def _utc_now() -> str:
 class HamiltonPlayground(BasePlayground):
     """Hamilton Playground - redundancy-aware symbolic regression agent."""
 
-    DEFAULT_WORKSPACE_ASSETS = ("input",)
+    DEFAULT_WORKSPACE_ASSETS = ("input", "lib")
 
     def __init__(self, config_dir: Path | None = None, config_path: Path | None = None):
         self._project_root = Path(__file__).resolve().parent.parent.parent.parent
@@ -171,6 +176,21 @@ class HamiltonPlayground(BasePlayground):
         self.logger.info("Materialized %s", capabilities_path)
         return capabilities_path
 
+    def _materialize_evaluation_context(
+        self,
+        workspace: Path,
+        task_description: str,
+        task_contract: dict[str, Any],
+    ) -> tuple[Path, Path]:
+        context = build_evaluation_context(
+            task_description=task_description,
+            task_contract=task_contract,
+            project_root=self._project_root,
+        )
+        json_path, md_path = materialize_evaluation_context(workspace, context)
+        self.logger.info("Materialized %s and %s", json_path, md_path)
+        return json_path, md_path
+
     def _init_workspace(
         self,
         task_description: str | None = None,
@@ -193,26 +213,39 @@ class HamiltonPlayground(BasePlayground):
         if task_contract is not None:
             contract_path = self.materialize_task_contract(workspace, task_contract)
             self.logger.info("Materialized %s", contract_path)
+            evaluation_json_path, evaluation_md_path = self._materialize_evaluation_context(
+                workspace,
+                task_description or "",
+                task_contract,
+            )
+            workspace_assets["evaluation_context"] = {
+                "json": str(evaluation_json_path),
+                "markdown": str(evaluation_md_path),
+            }
 
         findings_file = workspace / "findings.md"
         if not findings_file.exists():
             findings_file.write_text(
                 "# 研究发现\n\n"
-                "## 任务目标\n"
-                "- 恢复稳定支持集，而不是只追求最低误差\n"
-                "- 识别冗余变量、代理变量和伪相关变量\n"
-                "- 发现可解释的方程结构，并记录证伪结果\n\n"
                 "## 关键洞察\n"
-                "（只记录经验证的变量角色、结构结论和失效模式）\n\n"
-                "## 变量角色结论\n"
-                "| 变量 | 当前角色 | 证据 | 更新时间 |\n"
-                "|------|----------|------|----------|\n\n"
+                "（按轮次记录机制判断、证据状态和 Critic 对抗反馈）\n\n"
+                "<!-- APPEND_FINDINGS -->\n\n"
                 "## 实验结果\n"
-                "| 轮次 | 方法 | 支持集 | 方程 | Fit | Support Stability | Structure | 结论 |\n"
-                "|------|------|--------|------|-----|-------------------|-----------|------|\n\n"
-                "## 证伪记录\n"
-                "| 轮次 | 候选 | 证伪实验 | 结果 | 结论 |\n"
-                "|------|------|----------|------|------|\n\n"
+                "| 轮次 | 方法 | 候选方程 | 支持集 | 结果工件 | Critic | 结论 |\n"
+                "|------|------|----------|--------|----------|--------|------|\n\n"
+                "<!-- APPEND_RESULTS -->\n\n"
+                "## 候选方程解析\n"
+                "### 1) 方程与物理解释\n"
+                "- 当前暂无带真实结果工件的候选方程。\n"
+                "### 2) 参数/系数敏感性\n"
+                "- 待后续真实结果补充。\n"
+                "### 3) 物理洞察\n"
+                "- 待后续真实结果补充。\n"
+                "### 4) 消融分析\n"
+                "- 待后续真实结果补充。\n\n"
+                "## Worth Trying Next\n"
+                "（按轮次记录下一步验证目标、动作和验收标准）\n\n"
+                "<!-- APPEND_NEXT -->\n\n"
                 "## 最优方程演化\n"
                 "（记录最优方程在各轮中的变化过程）\n",
                 encoding="utf-8",
@@ -232,9 +265,20 @@ class HamiltonPlayground(BasePlayground):
                 "notes": [],
             },
             "routing_state.json": {
-                "current_strategy": "",
-                "strategy_history": [],
+                "current_strategy": "analytic_fit",
+                "strategy_history": ["analytic_fit"],
                 "last_updated_round": 0,
+                "current_focus": "先生成跨风速固定结构的真实系数表",
+                "priority_reason": "当前 no-PySR 主线优先完成真实结果链，而不是扩写叙述性结论。",
+                "next_stage": "integration_validation",
+                "latest_coef_table": "",
+                "latest_rollout_result": "",
+                "next_tools": [
+                    "python lib/fit_viv_analytic.py --input-dir input --output history/roundN/results/coef_table.csv --summary-json history/roundN/results/fit_summary.json",
+                    "python lib/validate_viv_rollout.py --input-dir input --coef-table history/roundN/results/coef_table.csv --output-json history/roundN/results/amplitude_error.json --output-csv history/roundN/results/rollout_metrics.csv --duration 200",
+                    "python lib/support_ablation.py --input-dir input --output history/roundN/results/support_ablation.json --variant no_v3v5",
+                ],
+                "blockers": [],
             },
         }
         for filename, payload in state_files.items():
@@ -248,6 +292,11 @@ class HamiltonPlayground(BasePlayground):
             if not state_path.exists():
                 state_path.write_text("", encoding="utf-8")
                 self.logger.info("Created %s", state_path)
+
+        hcc_ledger = workspace / HCC_LEDGER_FILE
+        if not hcc_ledger.exists():
+            hcc_ledger.write_text("", encoding="utf-8")
+            self.logger.info("Created %s", hcc_ledger)
 
         if not (workspace / L3_CONTEXT_FILE).exists():
             (workspace / L3_CONTEXT_FILE).write_text("# L3 跨任务经验\n\n（待系统填充）\n", encoding="utf-8")
@@ -269,6 +318,22 @@ class HamiltonPlayground(BasePlayground):
                 ),
                 encoding="utf-8",
             )
+        if not (workspace / CRITIC_SCHEDULER_STATE_FILE).exists():
+            (workspace / CRITIC_SCHEDULER_STATE_FILE).write_text(
+                json.dumps(
+                    {
+                        "last_critic_round": 0,
+                        "next_periodic_round": int(self.critic_policy.get("periodic_every_n_rounds", 3) or 3),
+                        "pending_trigger_reasons": [],
+                        "pending_attack_backlog": [],
+                        "last_critic_outcome": {},
+                        "updated_at": _utc_now(),
+                    },
+                    ensure_ascii=False,
+                    indent=2,
+                ),
+                encoding="utf-8",
+            )
 
         plan_file = workspace / "plan.md"
         if not plan_file.exists():
@@ -279,6 +344,13 @@ class HamiltonPlayground(BasePlayground):
             workspace_assets["environment_capabilities"] = {
                 "path": str(environment_capabilities_path),
             }
+        evaluation_json = workspace / EVALUATION_CONTEXT_FILE
+        evaluation_md = workspace / EVALUATION_CONTEXT_MD
+        if evaluation_json.exists() and evaluation_md.exists():
+            workspace_assets.setdefault(
+                "evaluation_context",
+                {"json": str(evaluation_json), "markdown": str(evaluation_md)},
+            )
 
         return workspace_assets
 

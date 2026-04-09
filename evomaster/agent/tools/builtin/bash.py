@@ -5,6 +5,9 @@
 
 from __future__ import annotations
 
+import json
+import re
+import shlex
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, ClassVar, Literal
 
@@ -14,6 +17,10 @@ from ..base import BaseTool, BaseToolParams, ToolError
 
 if TYPE_CHECKING:
     from evomaster.agent.session import BaseSession
+
+
+PYTHON_COMMAND_RE = re.compile(r"^(python|python3)\b")
+ENV_CAPABILITIES_FILE = "environment_capabilities.json"
 
 
 class BashToolParams(BaseToolParams):
@@ -61,10 +68,86 @@ class BashTool(BaseTool):
     name: ClassVar[str] = "execute_bash"
     params_class: ClassVar[type[BaseToolParams]] = BashToolParams
 
+    def _resolve_workspace_root(self, session: BaseSession) -> str | None:
+        get_workspace_path = getattr(session, "get_workspace_path", None)
+        if callable(get_workspace_path):
+            workspace_override = get_workspace_path()
+            if workspace_override:
+                return str(Path(workspace_override))
+
+        config = getattr(session, "config", None)
+        workspace_path = getattr(config, "workspace_path", None)
+        if workspace_path:
+            return str(Path(workspace_path))
+        return None
+
+    def _configured_python_executable(self, session: BaseSession) -> str | None:
+        workspace_root = self._resolve_workspace_root(session)
+        if not workspace_root:
+            return None
+        capabilities_path = Path(workspace_root) / ENV_CAPABILITIES_FILE
+        if not capabilities_path.is_file():
+            return None
+        try:
+            payload = json.loads(capabilities_path.read_text(encoding="utf-8"))
+        except Exception:
+            return None
+        python_executable = payload.get("python_executable")
+        if not isinstance(python_executable, str) or not python_executable.strip():
+            return None
+        return python_executable
+
+    def _normalize_python_command(self, session: BaseSession, command: str) -> str:
+        python_executable = self._configured_python_executable(session)
+        if not python_executable:
+            return command
+
+        stripped = command.lstrip()
+        if not stripped or stripped.startswith(shlex.quote(python_executable)) or stripped.startswith(python_executable):
+            return command
+        if not PYTHON_COMMAND_RE.match(stripped):
+            return command
+
+        prefix = command[: len(command) - len(stripped)]
+        normalized = PYTHON_COMMAND_RE.sub(shlex.quote(python_executable), stripped, count=1)
+        return prefix + normalized
+
+    def _normalize_payload(self, args_json: str) -> str:
+        """Recover common gateway/model wrapper forms for execute_bash."""
+        try:
+            payload = json.loads(args_json)
+        except Exception:
+            return args_json
+        if not isinstance(payload, dict):
+            return args_json
+
+        command = payload.get("command")
+        if isinstance(command, str):
+            stripped = command.strip()
+            if stripped.startswith("execute_bash"):
+                if stripped == "execute_bash":
+                    nested = payload.get("arguments") or payload.get("params")
+                    if isinstance(nested, dict):
+                        nested_command = nested.get("command")
+                        if isinstance(nested_command, str) and nested_command.strip():
+                            payload["command"] = nested_command.strip()
+                            nested_is_input = nested.get("is_input")
+                            if nested_is_input is not None:
+                                payload["is_input"] = nested_is_input
+                            nested_timeout = nested.get("timeout")
+                            if nested_timeout is not None:
+                                payload["timeout"] = nested_timeout
+                    else:
+                        payload["command"] = ""
+                else:
+                    payload["command"] = stripped.removeprefix("execute_bash").strip()
+
+        return json.dumps(payload, ensure_ascii=False)
+
     def execute(self, session: BaseSession, args_json: str) -> tuple[str, dict[str, Any]]:
         """执行 Bash 命令"""
         try:
-            params = self.parse_params(args_json)
+            params = self.parse_params(self._normalize_payload(args_json))
         except Exception as e:
             return f"Parameter validation error: {str(e)}", {"error": str(e)}
         
@@ -73,9 +156,12 @@ class BashTool(BaseTool):
         # 执行命令
         timeout = int(params.timeout) if params.timeout > 0 else None
         is_input = params.is_input == "true"
+        command = params.command
+        if not is_input:
+            command = self._normalize_python_command(session, command)
         
         result = session.exec_bash(
-            command=params.command,
+            command=command,
             timeout=timeout,
             is_input=is_input,
         )
@@ -102,4 +188,3 @@ class BashTool(BaseTool):
         }
         
         return obs, info
-
