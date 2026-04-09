@@ -166,6 +166,7 @@ local_model/
 .pids
 runs/
 /.env
+/.venv/
 
 # macOS
 .DS_Store

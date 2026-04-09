@@ -1,5 +1,31 @@
 # Progress Log
 
+## Session: 2026-04-09
+
+### Phase: GAN 10 轮环境配置与试跑
+- **Status:** complete
+- Actions taken:
+  - 阅读 `README.md`，确认项目目标、双模式运行方式、GAN 对抗机制与配置入口。
+  - 检查当前 git 工作区状态，确认已有多处用户/既有改动；本次仅追加运行记录并尽量不触碰无关文件。
+  - 创建 `.venv`，安装 `evomaster` editable 依赖、OpenAI 客户端、科学计算依赖与 PySR。
+  - 创建已忽略的 `.env` 保存本次运行需要的 LLM 环境变量，Hamilton 配置使用 `${...}` 占位读取。
+  - 在 `configs/hamilton/config.yaml` 配置运行 workspace 的 `input/` 数据软链接。
+  - 在 `.gitignore` 忽略 `/.venv/`。
+  - 完成 `run.py --help`、`hamilton-gan` 注册、配置读取、核心科学计算包导入验证。
+  - 初始化 PySR/Juliacall；发现默认 Julia depot 只读问题后，改用 `.venv/julia_depot` 并验证 PySR 可导入。
+  - 完成一次最小 LLM 连通性测试，endpoint/model 返回正常。
+  - 第一次启动 10 轮 GAN 运行，失败于 API completion token 上限；将 `llm.openai.max_tokens` 调整为 16384。
+  - 修复 OpenAI-compatible endpoint 将工具调用返回为 JSON 文本时框架无法识别的问题，增加 JSON-text tool call compatibility parser。
+  - 成功完成一次 10 轮 `hamilton-gan` 运行：`runs/hamilton_gan_10round_20260409_1944`，最终状态 `completed`。
+  - 核对成功运行日志：10 个 Solver round 与第 5/10 轮 Critic review 均结束；但该运行没有实际 `execute_bash`/PySR 实验调用，且每轮均提示 L2 文件未更新，因此结果只证明环境与编排链路跑通，不证明产生了可靠科学方程。
+- Files created/modified:
+  - `.gitignore` (updated)
+  - `configs/hamilton/config.yaml` (updated)
+  - `evomaster/utils/llm.py` (updated)
+  - `task_plan.md` (updated)
+  - `findings.md` (updated)
+  - `progress.md` (updated)
+
 ## Session: 2026-02-21
 
 ### Phase 1: 范围确认 & 仓库摸底

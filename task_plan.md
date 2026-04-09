@@ -6,6 +6,24 @@
 ## Current Phase
 Phase 5
 
+## Session 2026-04-09: GAN 10 轮环境配置与试跑
+- [x] 阅读 README，确认项目目标与 GAN 对抗模式入口
+- [x] 检查配置、依赖与运行参数
+- [x] 配置 API/数据/虚拟环境（不在记录中写入密钥）
+- [x] 执行 10 轮 `hamilton-gan` 试跑
+- [x] 记录运行结果与后续注意事项
+
+### Errors Encountered (2026-04-09)
+| Error | Attempt | Resolution |
+|-------|---------|------------|
+| `gpt-5-chat` endpoint rejected `max_tokens=128000`; completion limit is 16384 | First GAN run `runs/hamilton_gan_10round_20260409_1908` | Set `llm.openai.max_tokens` to `16384` and rerun in a new run directory |
+| OpenAI-compatible endpoint returned tool calls as JSON text instead of native `message.tool_calls` | Second GAN run `runs/hamilton_gan_10round_20260409_1912` looped on "You just output text without calling any tool" | Added JSON-text tool call parsing in `evomaster/utils/llm.py`; successful rerun is `runs/hamilton_gan_10round_20260409_1944` |
+
+### Run Result (2026-04-09)
+- Completed one 10-round `hamilton-gan` run in `runs/hamilton_gan_10round_20260409_1944`.
+- Final status: `completed`; record file: `runs/hamilton_gan_10round_20260409_1944/records/experiment_20260409_194539.json`.
+- Solver rounds 1-10 and Critic rounds 5/10 completed, but logs show no `execute_bash` or `str_replace_editor` tool calls in the successful run; `findings.md` and `plan.md` were not updated by the agents. Treat this as an environment/framework smoke test, not as a scientifically valid PySR discovery run.
+
 ## Phases
 
 ### Phase 1: 上游合并 (EvoMaster v0.0.2) — `complete`

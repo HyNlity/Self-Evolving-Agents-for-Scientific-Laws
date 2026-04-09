@@ -6,9 +6,11 @@
 from __future__ import annotations
 
 import base64
+import json
 import logging
 import sys
 import time
+import uuid
 from abc import ABC, abstractmethod
 from pathlib import Path
 from typing import Any, Literal
@@ -438,6 +440,7 @@ class OpenAILLM(BaseLLM):
         message = choice.message
 
         # 提取工具调用
+        response_content = message.content
         tool_calls = None
         if message.tool_calls:
             tool_calls = [
@@ -451,9 +454,13 @@ class OpenAILLM(BaseLLM):
                 )
                 for tc in message.tool_calls
             ]
+        elif response_content:
+            tool_calls = self._parse_text_tool_calls(response_content)
+            if tool_calls:
+                response_content = None
 
         return LLMResponse(
-            content=message.content,
+            content=response_content,
             tool_calls=tool_calls,
             finish_reason=choice.finish_reason,
             usage={
@@ -466,6 +473,54 @@ class OpenAILLM(BaseLLM):
                 "response_id": response.id,
             }
         )
+
+    def _parse_text_tool_calls(self, content: str) -> list[ToolCall] | None:
+        """Parse OpenAI-compatible endpoints that return tool calls as JSON text."""
+        text = content.strip()
+        if not text:
+            return None
+
+        decoder = json.JSONDecoder()
+        calls: list[ToolCall] = []
+        index = 0
+
+        while index < len(text):
+            while index < len(text) and text[index].isspace():
+                index += 1
+            if index >= len(text):
+                break
+            try:
+                obj, next_index = decoder.raw_decode(text, index)
+            except json.JSONDecodeError:
+                return None
+            if not isinstance(obj, dict):
+                return None
+
+            name = obj.get("name")
+            args = obj.get("arguments", {})
+            if name is None and isinstance(obj.get("command"), str):
+                name = "str_replace_editor"
+                args = obj
+            if not isinstance(name, str):
+                return None
+            if name.startswith("functions."):
+                name = name.split(".", 1)[1]
+            if not name:
+                return None
+            if not isinstance(args, str):
+                args = json.dumps(args, ensure_ascii=False)
+
+            calls.append(
+                ToolCall(
+                    id=f"call_{uuid.uuid4().hex}",
+                    type="function",
+                    function=FunctionCall(name=name, arguments=args),
+                )
+            )
+            index = next_index
+
+        return calls or None
+
 
 class DeepSeekLLM(BaseLLM):
     """DeepSeek LLM 实现

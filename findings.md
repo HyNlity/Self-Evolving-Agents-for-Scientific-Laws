@@ -7,6 +7,19 @@
 - 输出清单与可执行建议（必要时给出补丁）
 
 ## Research Findings
+- 2026-04-09 README 阅读结论：Hamilton 是一个基于 EvoMaster 的 LLM 自主符号回归 Agent，目标是从实验数据中自动发现 ODE/物理定律。
+- 2026-04-09 README 阅读结论：项目支持 `hamilton` 单 Agent 与 `hamilton-gan` GAN 对抗模式；GAN 模式由 Solver 生成候选方程，Critic 主动设计干预实验、消融实验、OOD/稳定性攻击来审查候选方程。
+- 2026-04-09 README 阅读结论：GAN 模式入口示例为 `python run.py --agent hamilton-gan --task playground/hamilton/workspace/task.md`，默认配置中的 `experiment.max_rounds` 控制轮数，README 示例为 10 轮。
+- 2026-04-09 运行前检查：系统 Python 缺少 pip/pydantic，已创建 `.venv` 并安装项目依赖、科学计算包与 PySR。
+- 2026-04-09 环境配置：Hamilton LLM 配置改用 `${OPENAI_API_KEY}` / `${GPT_BASE_URL}` / `${GPT_CHAT_MODEL}`，实际值放在已忽略的 `.env` 中，避免主配置硬编码密钥。
+- 2026-04-09 运行前检查：`run.py` 会把任务放到新的 `runs/.../workspaces/task_0`；已在 `configs/hamilton/config.yaml` 配置 symlink，将 `playground/hamilton/workspace/input` 暴露为运行 workspace 的 `input/`，避免任务 CSV 路径失效。
+- 2026-04-09 PySR 初始化：默认 Julia depot 写 `/home/zychen/.julia` 会因沙箱只读失败；正式运行需设置 `JULIA_DEPOT_PATH=$PWD/.venv/julia_depot`。
+- 2026-04-09 LLM 连通性：使用 Hamilton 配置的 OpenAI-compatible endpoint/model 做最小请求，返回正常。
+- 2026-04-09 运行入口注意：`hamilton-gan` 的配置文件实际在 `configs/hamilton/config.yaml`，运行时需显式传 `--config configs/hamilton/config.yaml`。
+- 2026-04-09 第一次 GAN 运行失败：API 返回 `gpt-5-chat` completion 上限 16384，而配置 `llm.openai.max_tokens=128000` 会被直接传给 Chat Completions；已将该值改为 16384。
+- 2026-04-09 第二次 GAN 运行暴露兼容性问题：该 OpenAI-compatible endpoint 有时把工具调用以 JSON 文本返回（例如 `{"name":"finish","arguments":...}`），而不是原生 `message.tool_calls`；框架会误判为未调用工具并循环提示。已在 `evomaster/utils/llm.py` 增加 JSON-text tool call parser。
+- 2026-04-09 成功完成 10 轮 GAN 对抗模式 smoke run：`runs/hamilton_gan_10round_20260409_1944`，record 为 `runs/hamilton_gan_10round_20260409_1944/records/experiment_20260409_194539.json`，最终状态 `completed`。
+- 2026-04-09 成功运行的质量限制：日志中没有出现 `execute_bash` 或 `str_replace_editor` 调用，只有 `use_skill`/`finish` 等；每个 Solver round 都提示 `findings.md`、`plan.md` 未更新。因此这次运行只能证明环境、配置、API、GAN 编排和结果落盘链路可跑通，不能视为已完成有效的 PySR 科学发现。
 - 仓库 README（中英）描述了 EvoMaster 的核心抽象：`evomaster/`（agent/core/env/skills/utils）、`playground/`（多种示例）、`configs/` 与 `docs/`。
 - 当前工作区存在 `playground/hamilton/`，结构为：`core/`（exp/playground）、`prompts/`、`tools/`（pysr_tool）、以及 `workspace/tools/`（自定义工具接口与用法文档）。
 - 当前工作区非常“脏”：`git status --porcelain` 显示大量新增/删除/修改文件（包括多个 `playground/*` 与 `configs/*` 被删除），需要在最终合并前拆分/清理提交，否则会显著影响可审查性与可维护性。

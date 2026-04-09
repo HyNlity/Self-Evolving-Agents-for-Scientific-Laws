@@ -1,5 +1,8 @@
 # Hamilton Playground 配置文件
 # 通用符号回归 / ODE 发现 Agent
+# 支持两种模式：
+#   --agent hamilton      → 原始单 Agent 模式
+#   --agent hamilton-gan  → GAN 对抗双 Agent 模式（Solver + Critic）
 
 # ============================================
 # LLM 配置
@@ -7,11 +10,11 @@
 llm:
   openai:
     provider: "openai"
-    model: "gpt-5"
-    api_key: "sk-1HEDl1RNtaMQV7TDet0FUA"
-    base_url: "https://llm.dp.tech"
+    model: "${GPT_CHAT_MODEL}"
+    api_key: "${OPENAI_API_KEY}"
+    base_url: "${GPT_BASE_URL}"
     temperature: 0.7
-    max_tokens: 128000
+    max_tokens: 16384
     timeout: 120
     max_retries: 3
     retry_delay: 1.0
@@ -19,9 +22,10 @@ llm:
   default: "openai"
 
 # ============================================
-# Agent 配置（新版 per-agent 格式）
+# Agent 配置（per-agent 格式）
 # ============================================
 agents:
+  # Solver Agent（生成器）— 发现方程
   hamilton:
     llm: "openai"
     max_turns: 120
@@ -45,6 +49,31 @@ agents:
     tools:
       builtin: ["*"]
 
+  # Critic Agent（鉴别器）— GAN 对抗审查
+  # 仅在 hamilton-gan 模式下启用
+  critic:
+    llm: "openai"
+    max_turns: 40           # Critic 轻量执行，控制 token 消耗
+    enable_tools: true
+
+    context:
+      max_tokens: 128000
+      truncation_strategy: "latest_half"
+      preserve_system_messages: true
+      preserve_recent_turns: 5
+
+    system_prompt_file: "prompts/critic_system.txt"
+    user_prompt_file: "prompts/critic_user.txt"
+
+    # Critic 不需要 PySR，但可以使用 evo-protocol 了解迭代规范
+    skills:
+      - evo-protocol
+
+    # Critic 有 bash 访问权限（用于运行干预实验脚本）
+    # 但无需 use_skill（不做符号回归搜索）
+    tools:
+      builtin: ["*"]
+
 # ============================================
 # Session 配置
 # ============================================
@@ -56,13 +85,20 @@ session:
     timeout: 21600
     gpu_devices: null
     cpu_devices: null
-    symlinks: {}
+    symlinks:
+      playground/hamilton/workspace/input: input
 
 # ============================================
 # 实验配置
 # ============================================
 experiment:
-  max_rounds: 3
+  max_rounds: 10            # GAN 模式下建议更多轮次
+
+  # Critic 触发条件（仅 hamilton-gan 模式有效）
+  critic:
+    round_interval: 5       # 至少每 N 轮触发一次 Critic
+    mse_plateau_threshold: 0.01  # MSE 改进 <1% 视为平台期
+    mse_plateau_window: 3   # 连续 N 轮检测平台期
 
 # ============================================
 # LLM 输出 & 工具调用日志
