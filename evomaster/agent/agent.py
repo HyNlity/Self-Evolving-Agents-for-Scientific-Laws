@@ -392,12 +392,17 @@ class BaseAgent(ABC):
 
     def _handle_no_tool_call(self) -> None:
         """处理没有工具调用的情况"""
-        # 添加用户消息提示继续
+        # Build tool list dynamically from registered tools
+        tool_names = [t.name for t in self.tools] if self.tools else []
+        tool_hints = ""
+        if "execute_bash" in tool_names:
+            tool_hints += "\nIf you need to run code or experiments, use the `execute_bash` tool."
+        if "str_replace_editor" in tool_names:
+            tool_hints += "\nIf you need to read or edit files, use the `str_replace_editor` tool."
         prompt = (
             "You just output text without calling any tool. "
-            "Every step must include a tool call.\n"
-            "If you need to run code or experiments, use the `execute_bash` tool.\n"
-            "If you need to read or edit files, use the `str_replace_editor` tool.\n"
+            "Every step must include a tool call."
+            f"{tool_hints}\n"
             "If you have completed all phases and run your experiments, "
             "call the `finish` tool now with your summary as the `message` parameter.\n"
             "IMPORTANT: You should not ask for human help."
@@ -830,8 +835,10 @@ class Agent(BaseAgent):
                 system_prompt_file,
                 format_kwargs=self._prompt_format_kwargs
             )
+            self._has_custom_prompt = True
         else:
             self._system_prompt = self._default_system_prompt()
+            self._has_custom_prompt = False
         
         # 加载用户提示词（可选）
         if user_prompt_file:
@@ -885,8 +892,8 @@ Always be careful with file operations and bash commands.
         working_dir_abs = str(Path(working_dir).absolute())
         working_dir_info = f"\n\n重要提示：当前工作目录是 {working_dir_abs}。你必须在这个目录下进行所有操作，不能切换工作目录。所有文件操作、命令执行都必须在工作目录 {working_dir_abs} 下进行。"
         prompt = self._system_prompt + working_dir_info
-        # 若有 skill_registry，自动注入 skills 信息（与 _default_system_prompt 一致）
-        if self.skill_registry is not None:
+        # 若有 skill_registry 且使用自定义 prompt（避免与 _default_system_prompt 重复注入）
+        if self.skill_registry is not None and self._has_custom_prompt:
             skills_info = self.skill_registry.get_meta_info_context()
             if skills_info:
                 prompt += f"\n{skills_info}\n"

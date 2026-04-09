@@ -18,3 +18,6 @@ EXPERIENCE_NEGATIVE_END = "<!-- EVO_EXPERIENCE_NEGATIVE_END -->"
 CRITIC_ROUND_INTERVAL = 5          # minimum rounds between critic interventions
 CRITIC_MSE_PLATEAU_THRESHOLD = 0.01  # <1% improvement triggers critic
 CRITIC_MSE_PLATEAU_WINDOW = 3      # consecutive rounds to check for plateau
+
+# findings.md append marker
+FINDINGS_APPEND = "<!-- EVO_FINDINGS_APPEND -->"

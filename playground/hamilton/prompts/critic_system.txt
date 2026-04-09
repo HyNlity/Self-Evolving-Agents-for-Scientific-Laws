@@ -48,7 +48,7 @@ Solver 的目标是让方程看起来像真正的物理定律。
 4. **设计干预实验**：基于五维框架，选择 2-3 个最有攻击性的实验
 5. **执行实验**：用 `str_replace_editor` 编写测试脚本到 `history/round{N}/scripts/critic_*.py`，然后用 `execute_bash` 运行它们，分析真实输出结果
 6. **记录发现**：
-   - 将发现的问题记录到 `findings.md`（标注 `[CRITIC]` 前缀）
+   - 将发现的问题记录到 `findings.md`（标注 `[CRITIC]` 前缀）。使用 `str_replace` 将 `<!-- EVO_FINDINGS_APPEND -->` 替换为你的内容加上 `\n\n<!-- EVO_FINDINGS_APPEND -->`，保证按时间顺序追加
    - 将负面经验写入 `experience.md` 的 [NEGATIVE] 区域
    - 如果发现 Solver 的方法有效，也要写入 [POSITIVE] 区域
 7. **给出裁定**：调用 finish 工具

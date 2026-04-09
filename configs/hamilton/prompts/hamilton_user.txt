@@ -1,5 +1,0 @@
-本轮编号：{input_data[round]}
-本轮工作目录：history/round{input_data[round]}/（已由系统创建，脚本放 scripts/，结果放 results/）
-
-## 任务
-{description}

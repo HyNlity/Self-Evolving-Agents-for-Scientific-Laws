@@ -96,6 +96,78 @@ def extract_agent_response(trajectory: Any) -> str:
     return last_content
 
 
+def extract_finish_message(trajectory) -> str:
+    """从轨迹中提取 finish tool call 的 message 参数（模块级工具函数）
+
+    Args:
+        trajectory: 执行轨迹对象
+
+    Returns:
+        finish message 文本，提取失败返回空字符串
+    """
+    try:
+        steps = getattr(trajectory, "steps", None)
+        if not isinstance(steps, list):
+            return ""
+        for step in reversed(steps):
+            assistant_message = getattr(step, "assistant_message", None)
+            tool_calls = getattr(assistant_message, "tool_calls", None)
+            if not tool_calls:
+                continue
+            for tc in reversed(tool_calls):
+                fn = getattr(tc, "function", None)
+                if not fn or getattr(fn, "name", None) != "finish":
+                    continue
+                args = getattr(fn, "arguments", "") or ""
+                try:
+                    parsed = json.loads(args) if isinstance(args, str) and args.strip() else {}
+                except Exception:
+                    return args
+                if isinstance(parsed, dict):
+                    msg = parsed.get("message")
+                    if isinstance(msg, str):
+                        return msg
+                    return json.dumps(parsed, ensure_ascii=False)
+                return str(parsed)
+    except Exception:
+        return ""
+    return ""
+
+
+def extract_task_completed(trajectory) -> str | None:
+    """从轨迹中提取 finish tool call 的 task_completed 参数（模块级工具函数）
+
+    Args:
+        trajectory: 执行轨迹对象
+
+    Returns:
+        task_completed 值（"true"/"false"），提取失败返回 None
+    """
+    try:
+        steps = getattr(trajectory, "steps", None)
+        if not isinstance(steps, list):
+            return None
+        for step in reversed(steps):
+            assistant_message = getattr(step, "assistant_message", None)
+            tool_calls = getattr(assistant_message, "tool_calls", None)
+            if not tool_calls:
+                continue
+            for tc in reversed(tool_calls):
+                fn = getattr(tc, "function", None)
+                if not fn or getattr(fn, "name", None) != "finish":
+                    continue
+                args = getattr(fn, "arguments", "") or ""
+                try:
+                    parsed = json.loads(args) if isinstance(args, str) and args.strip() else {}
+                except Exception:
+                    return None
+                if isinstance(parsed, dict):
+                    return parsed.get("task_completed")
+    except Exception:
+        return None
+    return None
+
+
 class BaseExp:
     """实验基类
 
@@ -206,3 +278,11 @@ class BaseExp:
             Agent的回答文本
         """
         return extract_agent_response(trajectory)
+
+    def _extract_task_completed(self, trajectory) -> str | None:
+        """Extract task_completed value from the finish tool call in trajectory."""
+        return extract_task_completed(trajectory)
+
+    def _extract_finish_message_from_trajectory(self, trajectory) -> str:
+        """Extract finish.message from trajectory."""
+        return extract_finish_message(trajectory)

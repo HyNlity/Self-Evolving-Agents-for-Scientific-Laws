@@ -13,6 +13,8 @@ HCC 分层记忆：
 
 import json
 import logging
+import re
+import shutil
 import sys
 from pathlib import Path
 from datetime import datetime
@@ -23,12 +25,14 @@ if str(_module_root) not in sys.path:
     sys.path.insert(0, str(_module_root))
 
 from evomaster.core import BasePlayground, register_playground
+from evomaster.core.exp import extract_finish_message
 from .constants import (
     CURRENT_BEST_BEGIN, CURRENT_BEST_END,
     STRATEGY_QUEUE_BEGIN, STRATEGY_QUEUE_END,
     EXPERIENCE_POSITIVE_BEGIN, EXPERIENCE_POSITIVE_END,
     EXPERIENCE_NEGATIVE_BEGIN, EXPERIENCE_NEGATIVE_END,
     CRITIC_ROUND_INTERVAL, CRITIC_MSE_PLATEAU_THRESHOLD, CRITIC_MSE_PLATEAU_WINDOW,
+    FINDINGS_APPEND,
 )
 
 from .exp import RoundExp, CriticExp
@@ -114,6 +118,7 @@ class HamiltonPlayground(BasePlayground):
                 "**系数趋势**: 哪些系数随风速变化、哪些恒定\n"
                 "**本轮结论**: 简要总结\n"
                 "-->\n\n"
+                f"{FINDINGS_APPEND}\n\n"
                 "## 实验结果总表\n"
                 "| 轮次 | 方程 | 平均振幅误差 | MSE(训练) | 结构一致性 | 关键改进 |\n"
                 "|------|------|-------------|-----------|-----------|----------|\n\n"
@@ -322,7 +327,6 @@ class HamiltonPlayground(BasePlayground):
                 self.logger.info(f"Linked L3 experience into workspace")
             except OSError:
                 # Fallback: copy if symlink fails (e.g. cross-filesystem)
-                import shutil
                 shutil.copy2(experience_file, workspace_link)
                 self.logger.info(f"Copied L3 experience into workspace (symlink failed)")
 
@@ -548,16 +552,6 @@ class GANHamiltonPlayground(HamiltonPlayground):
                         prev_critic_feedback = None
                         self.logger.info(f"Critic approved current progress but solver has more to explore.")
 
-                elif solver_claims_done:
-                    # Solver says done but critic not triggered yet → force critic
-                    self.logger.info("Solver claims done — forcing final critic review...")
-                    continue  # will trigger critic next iteration via solver_claims_done
-
-                else:
-                    # No critic this round, check if solver wants to stop without critic
-                    # Only allow stop after critic approval
-                    pass
-
             self._save_experiment_record()
             return {
                 "status": "completed",
@@ -631,7 +625,6 @@ class GANHamiltonPlayground(HamiltonPlayground):
             if not notes:
                 return None
             # Try to parse MSE from finish message
-            import re
             mse_match = re.search(r'MSE[:\s]*([0-9.eE+-]+)', notes, re.IGNORECASE)
             if mse_match:
                 return float(mse_match.group(1))
@@ -645,30 +638,5 @@ class GANHamiltonPlayground(HamiltonPlayground):
         if trajectory is None:
             return result.get("agent_result", "")
 
-        # Reuse RoundExp's extraction logic
-        try:
-            steps = getattr(trajectory, "steps", None)
-            if not isinstance(steps, list):
-                return result.get("agent_result", "")
-            for step in reversed(steps):
-                assistant_message = getattr(step, "assistant_message", None)
-                tool_calls = getattr(assistant_message, "tool_calls", None)
-                if not tool_calls:
-                    continue
-                for tc in reversed(tool_calls):
-                    fn = getattr(tc, "function", None)
-                    if not fn or getattr(fn, "name", None) != "finish":
-                        continue
-                    args = getattr(fn, "arguments", "") or ""
-                    try:
-                        parsed = json.loads(args) if isinstance(args, str) and args.strip() else {}
-                    except Exception:
-                        return args
-                    if isinstance(parsed, dict):
-                        msg = parsed.get("message")
-                        if isinstance(msg, str):
-                            return msg
-                        return json.dumps(parsed, ensure_ascii=False)
-        except Exception:
-            pass
-        return result.get("agent_result", "")
+        msg = extract_finish_message(trajectory)
+        return msg if msg else result.get("agent_result", "")

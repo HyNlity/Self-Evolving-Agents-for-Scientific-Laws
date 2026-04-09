@@ -116,7 +116,18 @@ history/round{N}/
 
 #### findings.md 逐轮记录格式（**必须遵守**）：
 
-每轮结束后在 findings.md 追加一个完整的小节：
+每轮结束后在 findings.md 的 `<!-- EVO_FINDINGS_APPEND -->` 标记处追加一个完整的小节。
+**追加方法**：用 `str_replace_editor` 的 `str_replace` 命令，将 `<!-- EVO_FINDINGS_APPEND -->` 替换为：
+
+```
+{你的新内容}
+
+<!-- EVO_FINDINGS_APPEND -->
+```
+
+这样标记始终保持在最后，确保逐轮内容按顺序排列。
+
+每轮追加的小节格式：
 
 ```markdown
 ### 第 N 轮
