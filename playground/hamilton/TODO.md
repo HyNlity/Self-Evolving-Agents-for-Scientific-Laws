@@ -159,11 +159,12 @@ python run.py --agent hamilton-gan --config configs/hamilton/config.yaml --run-d
 - [x] **findings.md 逐轮格式**（公式 + 物理解释 + 多维指标表）
 - [x] **Solver prompt 升级**（L3 + 多维评估 + 逐轮记录格式）
 - [x] **Critic prompt**（五维审查框架 + 干预实验 + L3 经验积累）
+- [x] **GAN 模式端到端测试**（5 轮完整流程验证，框架逻辑通过）
+- [x] **修复 Agent 不执行 bash 的问题**（Prompt 添加 execute_bash 说明 + 执行保护 + 幻觉检测）
 
 ## TODO
 
-- [ ] 集成测试：完整多轮迭代验证
+- [ ] 修复后再次运行 GAN 模式端到端测试（验证 Agent 实际执行 bash）
 - [ ] 验证 PySR Skill 在 Agent 对话中的实际效果
-- [ ] GAN 模式端到端测试
 - [ ] Critic 干预实验效果评估
 - [ ] L3 经验积累效果验证（跨任务复用）

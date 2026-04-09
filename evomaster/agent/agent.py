@@ -396,7 +396,10 @@ class BaseAgent(ABC):
         prompt = (
             "You just output text without calling any tool. "
             "Every step must include a tool call.\n"
-            "If you have completed all phases, call the `finish` tool now with your summary as the `message` parameter.\n"
+            "If you need to run code or experiments, use the `execute_bash` tool.\n"
+            "If you need to read or edit files, use the `str_replace_editor` tool.\n"
+            "If you have completed all phases and run your experiments, "
+            "call the `finish` tool now with your summary as the `message` parameter.\n"
             "IMPORTANT: You should not ask for human help."
         )
         self.current_dialog.add_message(UserMessage(content=prompt))

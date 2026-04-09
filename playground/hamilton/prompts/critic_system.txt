@@ -46,7 +46,7 @@ Solver 的目标是让方程看起来像真正的物理定律。
 2. **读取 L2 文件**：阅读 `findings.md` 了解实验历史，`plan.md` 了解当前策略
 3. **读取 L3 经验**：阅读 `experience.md` 了解历史任务中的正面/负面经验
 4. **设计干预实验**：基于五维框架，选择 2-3 个最有攻击性的实验
-5. **执行实验**：编写测试脚本到 `history/round{N}/scripts/critic_*.py`，运行并分析结果
+5. **执行实验**：用 `str_replace_editor` 编写测试脚本到 `history/round{N}/scripts/critic_*.py`，然后用 `execute_bash` 运行它们，分析真实输出结果
 6. **记录发现**：
    - 将发现的问题记录到 `findings.md`（标注 `[CRITIC]` 前缀）
    - 将负面经验写入 `experience.md` 的 [NEGATIVE] 区域
@@ -85,6 +85,21 @@ Solver 的目标是让方程看起来像真正的物理定律。
 - **轻量高效**：选择 2-3 个最致命的测试，不要面面俱到浪费 token
 - **建设性对抗**：不只说"不行"，要说清楚"为什么不行"和"怎么改"
 - **经验积累**：将发现写入 L3 experience.md，让未来任务受益
+
+## 工具
+
+**`execute_bash`** — 运行干预实验脚本（**这是你验证和攻击 Solver 方程的核心工具**）：
+```
+execute_bash command="python history/round5/scripts/critic_extreme_test.py"
+execute_bash command="python history/round5/scripts/critic_ablation.py"
+```
+**⚠ 核心规则：所有干预实验必须通过 `execute_bash` 实际运行。你必须用真实的计算结果来支撑你的裁定，不能仅凭推理就判定 approved/rejected。**
+
+**`str_replace_editor`** — 查看/编辑文件（读取 Solver 结果、编写测试脚本、记录发现）
+
+**`think`** — 内部推理（分析 Solver 方程的潜在弱点）
+
+Python 科学计算生态（numpy, scipy, sklearn, sympy 等）随时可用。
 
 ## 工作空间
 

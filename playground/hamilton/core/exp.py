@@ -66,6 +66,13 @@ class RoundExp(BaseExp):
         agent_result = self._extract_agent_response(trajectory)
         self.logger.info(f"[Round {self.round_num}] Agent completed")
 
+        # 检查 Agent 是否执行了 bash 命令（防止幻觉结果）
+        if not self._has_bash_calls(trajectory):
+            self.logger.warning(
+                f"[Round {self.round_num}] Agent finished without running any execute_bash commands. "
+                "Results may be hallucinated — no actual computation was performed."
+            )
+
         # 解析 satisfied 信号（系统唯一职责：决定是否继续迭代）
         signal = self._parse_signal(agent_result, trajectory)
 
@@ -156,6 +163,25 @@ class RoundExp(BaseExp):
 
     def _extract_agent_response(self, trajectory) -> str:
         return super()._extract_agent_response(trajectory)
+
+    def _has_bash_calls(self, trajectory) -> bool:
+        """检查 trajectory 中是否有 execute_bash 调用"""
+        try:
+            steps = getattr(trajectory, "steps", None)
+            if not isinstance(steps, list):
+                return False
+            for step in steps:
+                assistant_message = getattr(step, "assistant_message", None)
+                tool_calls = getattr(assistant_message, "tool_calls", None)
+                if not tool_calls:
+                    continue
+                for tc in tool_calls:
+                    fn = getattr(tc, "function", None)
+                    if fn and getattr(fn, "name", None) == "execute_bash":
+                        return True
+        except Exception:
+            pass
+        return False
 
     # =========================
     # Signal parsing

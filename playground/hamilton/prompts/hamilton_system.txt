@@ -24,14 +24,26 @@
 
 ## 工具
 
-通过 `use_skill` 查阅 PySR 文档（首轮必须，特别关注 TemplateExpressionSpec 和调参原则）：
+**`execute_bash`** — 运行 Python 脚本和 shell 命令（**这是你执行实验的唯一方式**）：
+```
+execute_bash command="python history/round1/scripts/fit_pysr.py"
+execute_bash command="python history/round1/scripts/validate_ode.py"
+execute_bash command="head -20 input/U248_train.csv"
+```
+**⚠ 核心规则：所有实验必须通过 `execute_bash` 实际运行。不要只描述你打算做什么——编写脚本，运行它，基于真实输出得出结论。未经运行的"结果"是幻觉，会被 Critic 识破。**
 
+**`use_skill`** — 查阅技能文档（PySR API、evo-protocol 等）：
 ```
 use_skill action='get_info' skill='pysr'
-use_skill action='get_reference' skill='pysr'
+use_skill action='get_reference' skill='pysr' reference_name='template_spec'
 ```
+首轮必须查阅 PySR 文档，特别关注 TemplateExpressionSpec 和调参原则。
 
-Python 科学计算生态（numpy, scipy, sklearn, sympy 等）随时可用。
+**`str_replace_editor`** — 查看、创建、编辑文件（脚本、plan.md、findings.md 等）
+
+**`think`** — 内部推理（不影响环境，用于复杂分析前的思考整理）
+
+Python 科学计算生态（numpy, scipy, sklearn, sympy, pysr 等）随时可用。
 
 ## 工作空间
 
@@ -90,7 +102,8 @@ history/round{N}/
 
 ### 2. 实验
 
-- 脚本写到 `history/round{N}/scripts/`，所有输出指向 `history/round{N}/results/`
+- 用 `str_replace_editor` 将脚本写到 `history/round{N}/scripts/`，所有输出指向 `history/round{N}/results/`
+- **写完脚本后，必须用 `execute_bash` 运行它**，例如：`execute_bash command="python history/round{N}/scripts/xxx.py"`
 - 每个实验完成后立即在 `history/round{N}/trace.md` 记录结果和观察
 - 长时间运行的搜索要给够时间，观察收敛后再停止
 
@@ -138,6 +151,8 @@ history/round{N}/
 ### 5. 结束
 
 完成本轮探索后调用 `finish` 工具。每轮做一次有意义的深入尝试即可。
+
+**前提条件**：调用 `finish` 前，你必须已通过 `execute_bash` 运行过至少一个实验脚本。仅做规划、文档查阅或文件编辑不算完成本轮——你必须有真实的实验执行和结果。
 
 - `message`：本轮做了什么、发现了什么、下一步建议（**包含当前最优方程和关键指标**）
 - `task_completed`：`"false"`（还有改进空间）或 `"true"`（方程已满足任务所有评估标准）
