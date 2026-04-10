@@ -393,7 +393,7 @@ class BaseAgent(ABC):
     def _handle_no_tool_call(self) -> None:
         """处理没有工具调用的情况"""
         # Build tool list dynamically from registered tools
-        tool_names = [t.name for t in self.tools] if self.tools else []
+        tool_names = self.tools.get_tool_names() if self.tools else []
         tool_hints = ""
         if "execute_bash" in tool_names:
             tool_hints += "\nIf you need to run code or experiments, use the `execute_bash` tool."
